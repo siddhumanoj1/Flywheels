@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  OWNER
+}
+
+enum JobStatus {
+  RECEIVED
+  UNDER_INSPECTION
+  WORK_IN_PROGRESS
+  COMPLETED
+  READY_FOR_DELIVERY
+}
+
+enum DocumentType {
+  QUOTATION
+  ESTIMATION
+  INVOICE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum PickupStatus {
+  REQUESTED
+  ASSIGNED
+  COMPLETED
+}
+
+enum NotificationChannel {
+  PUSH
+  WHATSAPP
+  TELEGRAM
+  SYSTEM
+}
+
+model User {
+  id              String            @id @default(cuid())
+  role            Role
+  name            String
+  phone           String            @unique
+  email           String?
+  address         String?
+  gst             String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  cars            Car[]
+  documents       Document[]        @relation("CustomerDocuments")
+  notifications   Notification[]
+  pickupRequests  PickupRequest[]
+  loyaltyEntries  LoyaltyLedger[]
+  otpCodes        OtpCode[]
+}
+
+model OtpCode {
+  id         String   @id @default(cuid())
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+}
+
+model Car {
+  id          String      @id @default(cuid())
+  userId      String
+  carNumber   String
+  model       String
+  fuelType    String
+  year        Int
+  isActive    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation(fields: [userId], references: [id])
+  jobs        Job[]
+  documents   Document[]
+
+  @@unique([userId, carNumber])
+}
+
+model Job {
+  id                   String          @id @default(cuid())
+  carId                String
+  status               JobStatus       @default(RECEIVED)
+  concern              String?
+  expectedCompletionAt DateTime?
+  pickupTime           DateTime?
+  pickupRequired       Boolean         @default(false)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  car                  Car             @relation(fields: [carId], references: [id])
+  documents            Document[]
+  pickupRequests       PickupRequest[]
+}
+
+model PickupRequest {
+  id          String       @id @default(cuid())
+  userId      String
+  jobId       String
+  address     String
+  latitude    Float?
+  longitude   Float?
+  status      PickupStatus @default(REQUESTED)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation(fields: [userId], references: [id])
+  job         Job          @relation(fields: [jobId], references: [id])
+}
+
+model Document {
+  id                String         @id @default(cuid())
+  documentNumber    String         @unique
+  type              DocumentType
+  customerId        String
+  carId             String?
+  jobId             String?
+  items             Json
+  subtotal          Decimal        @db.Decimal(12, 2)
+  total             Decimal        @db.Decimal(12, 2)
+  approvalStatus    ApprovalStatus @default(PENDING)
+  paymentStatus     PaymentStatus  @default(PENDING)
+  comments          String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  approvedAt        DateTime?
+  customer          User           @relation("CustomerDocuments", fields: [customerId], references: [id])
+  car               Car?           @relation(fields: [carId], references: [id])
+  job               Job?           @relation(fields: [jobId], references: [id])
+}
+
+model Notification {
+  id         String              @id @default(cuid())
+  userId     String
+  title      String
+  message    String
+  channel    NotificationChannel @default(SYSTEM)
+  readAt     DateTime?
+  createdAt  DateTime            @default(now())
+  user       User                @relation(fields: [userId], references: [id])
+}
+
+model LoyaltyLedger {
+  id         String   @id @default(cuid())
+  userId     String
+  points     Int
+  reason     String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model InventoryItem {
+  id          String   @id @default(cuid())
+  sku         String   @unique
+  name        String
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  barcode     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

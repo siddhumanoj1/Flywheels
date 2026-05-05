@@ -1,0 +1,8 @@
+backend/node_modules/
+backend/dist/
+backend/.env
+.external/
+flywheels/.dart_tool/
+flywheels/build/
+flywheels/.flutter-plugins
+flywheels/.flutter-plugins-dependencies
