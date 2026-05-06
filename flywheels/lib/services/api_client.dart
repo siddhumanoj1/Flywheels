@@ -10,9 +10,7 @@ class OtpResponse {
 }
 
 class FlywheelsApiClient {
-  const FlywheelsApiClient({
-    this.baseUrl = 'http://10.0.2.2:8080/api/v1',
-  });
+  const FlywheelsApiClient({this.baseUrl = 'http://10.0.2.2:8080/api/v1'});
 
   final String baseUrl;
 
@@ -54,9 +52,10 @@ class FlywheelsApiClient {
         id: user['id'] as String,
         name: user['name'] as String,
         phone: user['phone'] as String,
-        role: (user['role'] as String) == 'owner' ? UserRole.owner : UserRole.customer,
+        role: (user['role'] as String) == 'owner'
+            ? UserRole.owner
+            : UserRole.customer,
       ),
     );
   }
 }
-

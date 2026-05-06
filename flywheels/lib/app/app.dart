@@ -21,7 +21,10 @@ class _FlywheelsAppState extends State<FlywheelsApp> {
   @override
   void initState() {
     super.initState();
-    _controller = AppController()..bootstrap();
+    _controller = AppController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _controller.bootstrap();
+    });
   }
 
   @override

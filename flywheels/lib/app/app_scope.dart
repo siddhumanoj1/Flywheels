@@ -13,5 +13,12 @@ class FlywheelsScope extends InheritedNotifier<AppController> {
     assert(scope != null, 'FlywheelsScope is missing in the widget tree.');
     return scope!.notifier!;
   }
-}
 
+  static AppController read(BuildContext context) {
+    final element = context
+        .getElementForInheritedWidgetOfExactType<FlywheelsScope>();
+    final scope = element?.widget as FlywheelsScope?;
+    assert(scope != null, 'FlywheelsScope is missing in the widget tree.');
+    return scope!.notifier!;
+  }
+}

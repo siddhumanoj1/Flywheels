@@ -17,9 +17,7 @@ class DocumentPdfViewerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${document.title} PDF'),
-      ),
+      appBar: AppBar(title: Text('${document.title} PDF')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -48,14 +46,16 @@ class DocumentPdfViewerPage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 18),
-                Container(
-                  height: 2,
-                  color: AppPalette.red,
-                ),
+                Container(height: 2, color: AppPalette.red),
                 const SizedBox(height: 18),
-                Text(document.title, style: Theme.of(context).textTheme.headlineMedium),
+                Text(
+                  document.title,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
                 const SizedBox(height: 8),
-                Text('${document.type.label} | ${formatShortDate(document.updatedAt)}'),
+                Text(
+                  '${document.type.label} | ${formatShortDate(document.updatedAt)}',
+                ),
                 const SizedBox(height: 16),
                 Text('Vehicle: ${car.carNumber}'),
                 Text('Model: ${car.model}'),
@@ -66,12 +66,11 @@ class DocumentPdfViewerPage extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          width: 26,
-                          child: Text('${entry.key + 1}.'),
-                        ),
+                        SizedBox(width: 26, child: Text('${entry.key + 1}.')),
                         Expanded(child: Text(entry.value.description)),
-                        Text('${entry.value.quantity} x ${formatCurrency(entry.value.unitPrice)}'),
+                        Text(
+                          '${entry.value.quantity} x ${formatCurrency(entry.value.unitPrice)}',
+                        ),
                         const SizedBox(width: 12),
                         Text(formatCurrency(entry.value.total)),
                       ],
@@ -81,9 +80,15 @@ class DocumentPdfViewerPage extends StatelessWidget {
                 const Divider(height: 28),
                 Row(
                   children: [
-                    Text('Total', style: Theme.of(context).textTheme.titleLarge),
+                    Text(
+                      'Total',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
                     const Spacer(),
-                    Text(formatCurrency(document.total), style: Theme.of(context).textTheme.headlineMedium),
+                    Text(
+                      formatCurrency(document.total),
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -91,7 +96,9 @@ class DocumentPdfViewerPage extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    Chip(label: Text('Approval: ${document.approvalState.name}')),
+                    Chip(
+                      label: Text('Approval: ${document.approvalState.name}'),
+                    ),
                     Chip(label: Text('Payment: ${document.paymentState.name}')),
                     Chip(label: Text(document.pdfLabel)),
                   ],

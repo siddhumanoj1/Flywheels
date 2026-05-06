@@ -187,12 +187,15 @@ abstract final class DocumentBuilderService {
   ) {
     final normalized = firstLine.trim().toLowerCase();
     if (normalized == 'invoice') return DocumentType.invoice;
-    if (normalized == 'quotation' || normalized == 'quote')
+    if (normalized == 'quotation' || normalized == 'quote') {
       return DocumentType.quotation;
-    if (normalized == 'estimation' || normalized == 'estimate')
+    }
+    if (normalized == 'estimation' || normalized == 'estimate') {
       return DocumentType.estimation;
-    if (normalized == 'job card' || normalized == 'jobcard')
+    }
+    if (normalized == 'job card' || normalized == 'jobcard') {
       return DocumentType.jobCard;
+    }
     if (fallbackType != null) return fallbackType;
     throw const FormatException(
       'Start the text with Invoice, Quotation, Estimation, or Job Card.',

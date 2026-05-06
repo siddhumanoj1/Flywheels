@@ -399,6 +399,8 @@ class SupportMessage {
     this.carId,
     this.attachmentPath,
     this.sentByOwner = false,
+    this.isDelivered = true,
+    this.isRead = false,
   });
 
   final String id;
@@ -409,6 +411,31 @@ class SupportMessage {
   final String? carId;
   final String? attachmentPath;
   final bool sentByOwner;
+  final bool isDelivered;
+  final bool isRead;
+
+  SupportMessage copyWith({
+    String? topic,
+    String? message,
+    String? carId,
+    String? attachmentPath,
+    bool? sentByOwner,
+    bool? isDelivered,
+    bool? isRead,
+  }) {
+    return SupportMessage(
+      id: id,
+      userId: userId,
+      topic: topic ?? this.topic,
+      message: message ?? this.message,
+      createdAt: createdAt,
+      carId: carId ?? this.carId,
+      attachmentPath: attachmentPath ?? this.attachmentPath,
+      sentByOwner: sentByOwner ?? this.sentByOwner,
+      isDelivered: isDelivered ?? this.isDelivered,
+      isRead: isRead ?? this.isRead,
+    );
+  }
 }
 
 class DocumentDraft {

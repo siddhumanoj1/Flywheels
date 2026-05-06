@@ -1,8 +1,10 @@
 import 'package:flywheels/app/app_scope.dart';
+import 'package:flywheels/controllers/app_controller.dart';
 import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/document_builder_service.dart';
+import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flutter/material.dart';
@@ -31,8 +33,12 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
 
   DocumentType _selectedType = DocumentType.invoice;
   bool _useExistingCustomer = true;
+  bool _showLibrary = false;
+  bool _libraryNewestFirst = true;
   String? _selectedCustomerId;
   String? _selectedCarId;
+  String _libraryQuery = '';
+  DocumentType? _libraryTypeFilter;
   List<DocumentLineItem> _items = const [];
 
   @override
@@ -153,6 +159,26 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Widget _buildModeSwitch() {
+    return SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment<bool>(
+          value: false,
+          icon: Icon(Icons.edit_document),
+          label: Text('Document Studio'),
+        ),
+        ButtonSegment<bool>(
+          value: true,
+          icon: Icon(Icons.library_books_outlined),
+          label: Text('Document Library'),
+        ),
+      ],
+      selected: {_showLibrary},
+      onSelectionChanged: (selection) =>
+          setState(() => _showLibrary = selection.first),
+    );
+  }
+
   void _parseDocument() {
     try {
       final controller = FlywheelsScope.of(context);
@@ -229,10 +255,10 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     });
   }
 
-  void _sendDocument() {
+  Future<ServiceDocument?> _sendDocument({bool sendToChat = false}) async {
     if (_useExistingCustomer && _selectedCarId == null) {
       _showMessage('Select a car before sending a document.');
-      return;
+      return null;
     }
     if (!_useExistingCustomer &&
         (_customerNameController.text.trim().isEmpty ||
@@ -242,23 +268,114 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       _showMessage(
         'Complete customer, phone, vehicle, and model for new customer documents.',
       );
-      return;
+      return null;
     }
     if (_items.isEmpty) {
       _showMessage('Add at least one line item before sending.');
-      return;
+      return null;
     }
 
     final controller = FlywheelsScope.of(context);
-    controller.sendDocument(
+    final document = controller.sendDocument(
       _currentDraft(),
       customerUserId: _useExistingCustomer ? _selectedCustomerId : null,
       fuelType: _fuelTypeController.text.trim(),
       year: int.tryParse(_yearController.text.trim()),
     );
+    if (sendToChat && document != null) {
+      final car = controller.cars
+          .where((item) => item.id == document.carId)
+          .firstOrNull;
+      final customer = car == null ? null : controller.customerForCar(car.id);
+      try {
+        final export = await DocumentPdfExportService.exportDocument(
+          document: document,
+          car: car,
+          customer: customer,
+        );
+        controller.sendDocumentInChat(
+          document,
+          attachmentPath: export.filePath,
+        );
+      } catch (_) {
+        controller.sendDocumentInChat(document);
+      }
+    }
     _documentNumberController.text =
         DocumentBuilderService.createDocumentNumber(_selectedType);
-    _showMessage('${_selectedType.label} sent to the selected car.');
+    _showMessage(
+      sendToChat
+          ? '${_selectedType.label} sent and attached to chat.'
+          : '${_selectedType.label} sent to the selected car.',
+    );
+    return document;
+  }
+
+  Future<void> _confirmSendDocument({bool sendToChat = false}) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Send ${_selectedType.label}?'),
+        content: Text(
+          sendToChat
+              ? 'This saves the document and sends it in the customer chat.'
+              : 'This saves the document to the customer Document Library.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _sendDocument(sendToChat: sendToChat);
+    }
+  }
+
+  Future<void> _showDraftPreviewDialog() async {
+    final selectedCar = FlywheelsScope.of(
+      context,
+    ).cars.where((car) => car.id == _selectedCarId).firstOrNull;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${_selectedType.label} preview'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: _DraftPreviewContent(
+              documentNumber: _documentNumberController.text,
+              type: _selectedType,
+              vehicleNumber:
+                  selectedCar?.carNumber ?? _vehicleNumberController.text,
+              carModel: _carModelController.text,
+              customerName: _customerNameController.text,
+              items: _items,
+              total: _items.fold<double>(0, (sum, item) => sum + item.total),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _confirmSendDocument();
+            },
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _shareDraftOnWhatsapp() async {
@@ -296,14 +413,37 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       _showMessage('No customer phone is available for this document.');
       return;
     }
-    final sent = await WhatsappShareService.share(
-      phone: customer.phone,
+    final export = await DocumentPdfExportService.exportDocument(
+      document: document,
+      car: car,
+      customer: customer,
+    );
+    final sent = await WhatsappShareService.sharePdf(
+      filePath: export.filePath,
+      fileName: export.fileName,
       message: controller.buildDocumentWhatsappMessage(document),
     );
     if (!mounted) return;
     _showMessage(
-      sent ? 'Document shared on WhatsApp.' : 'WhatsApp could not be opened.',
+      sent
+          ? 'PDF ready for WhatsApp sharing.'
+          : 'PDF saved. WhatsApp share sheet could not be opened.',
     );
+  }
+
+  Future<void> _downloadDocumentPdf(ServiceDocument document) async {
+    final controller = FlywheelsScope.of(context);
+    final car = controller.cars
+        .where((item) => item.id == document.carId)
+        .firstOrNull;
+    final customer = car == null ? null : controller.customerForCar(car.id);
+    final export = await DocumentPdfExportService.exportDocument(
+      document: document,
+      car: car,
+      customer: customer,
+    );
+    if (!mounted) return;
+    _showMessage('${document.title} PDF saved to ${export.filePath}');
   }
 
   Future<void> _sharePaymentReminder(ServiceDocument document) async {
@@ -328,6 +468,165 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     );
   }
 
+  Future<void> _showDocumentPreviewDialog(ServiceDocument document) async {
+    final controller = FlywheelsScope.of(context);
+    final car = controller.cars
+        .where((item) => item.id == document.carId)
+        .firstOrNull;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${document.type.label} preview'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: _ServiceDocumentPreviewContent(document: document, car: car),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          OutlinedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _downloadDocumentPdf(document);
+            },
+            child: const Text('Download PDF'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _shareDocumentOnWhatsapp(document);
+            },
+            child: const Text('WhatsApp'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendDocumentToChat(ServiceDocument document) async {
+    final controller = FlywheelsScope.of(context);
+    final car = controller.cars
+        .where((item) => item.id == document.carId)
+        .firstOrNull;
+    final customer = car == null ? null : controller.customerForCar(car.id);
+    final export = await DocumentPdfExportService.exportDocument(
+      document: document,
+      car: car,
+      customer: customer,
+    );
+    controller.sendDocumentInChat(document, attachmentPath: export.filePath);
+    if (!mounted) return;
+    _showMessage('${document.title} PDF sent in customer chat.');
+  }
+
+  Widget _buildDocumentLibrary(
+    AppController controller,
+    List<ServiceDocument> documents,
+  ) {
+    final needle = _libraryQuery.trim().toLowerCase();
+    final visibleDocuments =
+        documents.where((document) {
+          final car = controller.cars
+              .where((item) => item.id == document.carId)
+              .firstOrNull;
+          final customer = car == null
+              ? null
+              : controller.customerForCar(car.id);
+          final searchable =
+              '${document.title} ${document.type.label} ${document.approvalState.name} ${document.paymentState.name} ${car?.carNumber ?? ''} ${customer?.name ?? ''}';
+          final matchesQuery =
+              needle.isEmpty || searchable.toLowerCase().contains(needle);
+          final matchesFilter =
+              _libraryTypeFilter == null || document.type == _libraryTypeFilter;
+          return matchesQuery && matchesFilter;
+        }).toList()..sort(
+          (left, right) => _libraryNewestFirst
+              ? right.updatedAt.compareTo(left.updatedAt)
+              : left.updatedAt.compareTo(right.updatedAt),
+        );
+
+    return ListView(
+      key: const PageStorageKey('owner-document-library'),
+      padding: const EdgeInsets.all(20),
+      children: [
+        _buildModeSwitch(),
+        const SizedBox(height: 16),
+        Text('Document Library', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        TextField(
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search_rounded),
+            hintText: 'Search documents, customers, cars',
+          ),
+          onChanged: (value) => setState(() => _libraryQuery = value),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<DocumentType?>(
+                initialValue: _libraryTypeFilter,
+                decoration: const InputDecoration(labelText: 'Filter'),
+                items: [
+                  const DropdownMenuItem<DocumentType?>(
+                    value: null,
+                    child: Text('All documents'),
+                  ),
+                  ...DocumentType.values.map(
+                    (type) => DropdownMenuItem<DocumentType?>(
+                      value: type,
+                      child: Text(type.label),
+                    ),
+                  ),
+                ],
+                onChanged: (value) =>
+                    setState(() => _libraryTypeFilter = value),
+              ),
+            ),
+            const SizedBox(width: 10),
+            IconButton.outlined(
+              tooltip: _libraryNewestFirst ? 'Newest first' : 'Oldest first',
+              onPressed: () =>
+                  setState(() => _libraryNewestFirst = !_libraryNewestFirst),
+              icon: Icon(
+                _libraryNewestFirst ? Icons.south_rounded : Icons.north_rounded,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (visibleDocuments.isEmpty)
+          Text(
+            'No documents match this view.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ...visibleDocuments.map((document) {
+          final car = controller.cars
+              .where((item) => item.id == document.carId)
+              .firstOrNull;
+          final customer = car == null
+              ? null
+              : controller.customerForCar(car.id);
+          return _OwnerDocumentLibraryTile(
+            document: document,
+            car: car,
+            customer: customer,
+            onPreview: () => _showDocumentPreviewDialog(document),
+            onDownload: () => _downloadDocumentPdf(document),
+            onWhatsapp: () => _shareDocumentOnWhatsapp(document),
+            onPaymentReminder: () => _sharePaymentReminder(document),
+            onSendToChat: () => _sendDocumentToChat(document),
+            onMarkPaid: () => controller.markDocumentPaid(document.id),
+          );
+        }),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
@@ -343,15 +642,20 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     final documents = _selectedCarId == null
         ? controller.documents
         : controller.documentsForCar(_selectedCarId!);
-    final total = _items.fold<double>(0, (sum, item) => sum + item.total);
     final noteHint = selectedCar == null
         ? 'Paste the full invoice, quotation, or estimation text. If you select a car first, this note area can stay much shorter.'
         : 'You do not need to paste the document type, vehicle number, or car model here. The selected car and document type will be used automatically.';
+
+    if (_showLibrary) {
+      return _buildDocumentLibrary(controller, documents);
+    }
 
     return ListView(
       key: const PageStorageKey('owner-document-tab'),
       padding: const EdgeInsets.all(20),
       children: [
+        _buildModeSwitch(),
+        const SizedBox(height: 16),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -429,7 +733,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 const SizedBox(height: 16),
                 if (_useExistingCustomer) ...[
                   DropdownButtonFormField<String>(
-                    value: _selectedCustomerId,
+                    initialValue: _selectedCustomerId,
                     decoration: const InputDecoration(
                       labelText: 'Select customer',
                     ),
@@ -450,7 +754,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _selectedCarId,
+                    initialValue: _selectedCarId,
                     decoration: const InputDecoration(labelText: 'Select car'),
                     items: customerCars
                         .map(
@@ -615,6 +919,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                             _useExistingCustomer && selectedCustomer != null,
                         decoration: InputDecoration(
                           labelText: 'Customer phone',
+                          prefixText: '+91 ',
                           helperText:
                               _useExistingCustomer && selectedCustomer != null
                               ? 'Locked to selected customer'
@@ -753,200 +1058,42 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Text(
+                  'Document actions',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Preview opens in a dialog so the studio stays focused on editing.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
-                    Text(
-                      'Preview',
-                      style: Theme.of(context).textTheme.titleLarge,
+                    OutlinedButton.icon(
+                      onPressed: _showDraftPreviewDialog,
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: const Text('Preview'),
                     ),
-                    const Spacer(),
-                    OutlinedButton(
+                    OutlinedButton.icon(
                       onPressed: _shareDraftOnWhatsapp,
-                      child: const Text('Share on WhatsApp'),
+                      icon: const Icon(Icons.ios_share_rounded),
+                      label: const Text('WhatsApp'),
                     ),
-                    const SizedBox(width: 10),
-                    FilledButton(
-                      onPressed: _sendDocument,
-                      child: Text('Send ${_selectedType.label}'),
+                    FilledButton.icon(
+                      onPressed: () => _sendDocument(),
+                      icon: const Icon(Icons.library_add_rounded),
+                      label: Text('Send ${_selectedType.label}'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => _confirmSendDocument(sendToChat: true),
+                      icon: const Icon(Icons.chat_bubble_rounded),
+                      label: const Text('Send to chat'),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: AppPalette.white,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: AppPalette.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          BrandLogo(size: 42),
-                          SizedBox(width: 12),
-                          Text('FLYWHEELS AUTO'),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _documentNumberController.text.isEmpty
-                            ? 'Draft number pending'
-                            : _documentNumberController.text,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        selectedCar?.carNumber ?? _vehicleNumberController.text,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      Text(
-                        _carModelController.text,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      Text(
-                        _customerNameController.text,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      ..._items.asMap().entries.map(
-                        (entry) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${entry.key + 1}. ${entry.value.description}',
-                                ),
-                              ),
-                              Text(
-                                '${entry.value.quantity} x ${formatCurrency(entry.value.unitPrice)}',
-                              ),
-                              const SizedBox(width: 12),
-                              Text(formatCurrency(entry.value.total)),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const Divider(height: 28),
-                      Row(
-                        children: [
-                          Text(
-                            _selectedType.label,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const Spacer(),
-                          Text(
-                            formatCurrency(total),
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Sent documents',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                if (documents.isEmpty)
-                  Text(
-                    'No documents sent for the selected car yet.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ...documents.map((document) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppPalette.soft,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                document.title,
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                            ),
-                            Text(
-                              formatShortDate(document.updatedAt),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${document.type.label} | ${formatCurrency(document.total)}',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            Chip(
-                              label: Text(
-                                'Approval: ${document.approvalState.name}',
-                              ),
-                            ),
-                            Chip(
-                              label: Text(
-                                'Payment: ${document.paymentState.name}',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            OutlinedButton(
-                              onPressed: () =>
-                                  _shareDocumentOnWhatsapp(document),
-                              child: const Text('WhatsApp'),
-                            ),
-                            if (document.type == DocumentType.invoice &&
-                                document.paymentState != PaymentState.paid)
-                              OutlinedButton(
-                                onPressed: () =>
-                                    _sharePaymentReminder(document),
-                                child: const Text('Payment reminder'),
-                              ),
-                          ],
-                        ),
-                        if (document.type == DocumentType.invoice &&
-                            document.paymentState != PaymentState.paid) ...[
-                          const SizedBox(height: 12),
-                          OutlinedButton(
-                            onPressed: () =>
-                                controller.markDocumentPaid(document.id),
-                            child: const Text('Mark as paid'),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
-                }),
               ],
             ),
           ),
@@ -1135,6 +1282,236 @@ class _LineItemEditorState extends State<_LineItemEditor> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DraftPreviewContent extends StatelessWidget {
+  const _DraftPreviewContent({
+    required this.documentNumber,
+    required this.type,
+    required this.vehicleNumber,
+    required this.carModel,
+    required this.customerName,
+    required this.items,
+    required this.total,
+  });
+
+  final String documentNumber;
+  final DocumentType type;
+  final String vehicleNumber;
+  final String carModel;
+  final String customerName;
+  final List<DocumentLineItem> items;
+  final double total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            BrandLogo(size: 42),
+            SizedBox(width: 12),
+            Text('FLYWHEELS AUTO'),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text(
+          documentNumber.isEmpty ? 'Draft number pending' : documentNumber,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 6),
+        Text(vehicleNumber, style: Theme.of(context).textTheme.bodyMedium),
+        Text(carModel, style: Theme.of(context).textTheme.bodyMedium),
+        Text(customerName, style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 16),
+        ...items.asMap().entries.map(
+          (entry) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('${entry.key + 1}. ${entry.value.description}'),
+                ),
+                Text(
+                  '${entry.value.quantity} x ${formatCurrency(entry.value.unitPrice)}',
+                ),
+                const SizedBox(width: 12),
+                Text(formatCurrency(entry.value.total)),
+              ],
+            ),
+          ),
+        ),
+        const Divider(height: 28),
+        Row(
+          children: [
+            Text(type.label, style: Theme.of(context).textTheme.titleLarge),
+            const Spacer(),
+            Text(
+              formatCurrency(total),
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ServiceDocumentPreviewContent extends StatelessWidget {
+  const _ServiceDocumentPreviewContent({
+    required this.document,
+    required this.car,
+  });
+
+  final ServiceDocument document;
+  final CarProfile? car;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            BrandLogo(size: 42),
+            SizedBox(width: 12),
+            Text('FLYWHEELS AUTO'),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text(document.title, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 6),
+        Text(
+          car?.carNumber ?? 'Vehicle',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        Text(
+          car?.model ?? 'Model',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        Text(
+          '${document.type.label} | ${formatCurrency(document.total)}',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Chip(label: Text('Approval: ${document.approvalState.name}')),
+            Chip(label: Text('Payment: ${document.paymentState.name}')),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _OwnerDocumentLibraryTile extends StatelessWidget {
+  const _OwnerDocumentLibraryTile({
+    required this.document,
+    required this.car,
+    required this.customer,
+    required this.onPreview,
+    required this.onDownload,
+    required this.onWhatsapp,
+    required this.onPaymentReminder,
+    required this.onSendToChat,
+    required this.onMarkPaid,
+  });
+
+  final ServiceDocument document;
+  final CarProfile? car;
+  final GarageUser? customer;
+  final VoidCallback onPreview;
+  final VoidCallback onDownload;
+  final VoidCallback onWhatsapp;
+  final VoidCallback onPaymentReminder;
+  final VoidCallback onSendToChat;
+  final VoidCallback onMarkPaid;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  document.title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              Text(
+                formatShortDate(document.updatedAt),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${document.type.label} | ${formatCurrency(document.total)}',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(label: Text('Approval: ${document.approvalState.name}')),
+              Chip(label: Text('Payment: ${document.paymentState.name}')),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton(
+                onPressed: onPreview,
+                child: const Text('Preview'),
+              ),
+              OutlinedButton(
+                onPressed: onDownload,
+                child: const Text('Download PDF'),
+              ),
+              OutlinedButton(
+                onPressed: onWhatsapp,
+                child: const Text('WhatsApp'),
+              ),
+              OutlinedButton(
+                onPressed: onSendToChat,
+                child: const Text('Send to chat'),
+              ),
+              if (document.type == DocumentType.invoice &&
+                  document.paymentState != PaymentState.paid)
+                OutlinedButton(
+                  onPressed: onPaymentReminder,
+                  child: const Text('Payment reminder'),
+                ),
+            ],
+          ),
+          if (document.type == DocumentType.invoice &&
+              document.paymentState != PaymentState.paid) ...[
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: onMarkPaid,
+              child: const Text('Mark as paid'),
+            ),
+          ],
         ],
       ),
     );

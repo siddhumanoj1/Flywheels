@@ -23,7 +23,7 @@ class _SpeedometerLogoLoaderState extends State<SpeedometerLogoLoader>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1180),
     )..repeat();
   }
 
@@ -59,11 +59,14 @@ class _SpeedometerThrobberPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final eased = Curves.easeOutCubic.transform(progress);
     final center = size.center(Offset.zero);
     final radius = math.min(size.width, size.height) / 2 - 15;
     final rect = Rect.fromCircle(center: center, radius: radius);
     final startAngle = -math.pi * 1.18;
     final sweepAngle = math.pi * 1.36;
+    final activeSweep = sweepAngle * (0.12 + eased * 0.84);
+    final pulse = 0.5 + (math.sin(progress * math.pi) * 0.5);
 
     final trackPaint = Paint()
       ..color = AppPalette.soft
@@ -71,7 +74,7 @@ class _SpeedometerThrobberPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 10;
     final glowPaint = Paint()
-      ..color = AppPalette.red.withValues(alpha: 0.12)
+      ..color = AppPalette.red.withValues(alpha: 0.08 + pulse * 0.14)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 18;
@@ -82,10 +85,8 @@ class _SpeedometerThrobberPainter extends CustomPainter {
       ..strokeWidth = 10;
 
     canvas.drawArc(rect, startAngle, sweepAngle, false, trackPaint);
-
-    final highlightStart = startAngle + (progress * sweepAngle);
-    canvas.drawArc(rect, highlightStart, math.pi * 0.24, false, glowPaint);
-    canvas.drawArc(rect, highlightStart, math.pi * 0.18, false, activePaint);
+    canvas.drawArc(rect, startAngle, activeSweep, false, glowPaint);
+    canvas.drawArc(rect, startAngle, activeSweep, false, activePaint);
 
     final tickPaint = Paint()
       ..color = AppPalette.black.withValues(alpha: 0.42)
@@ -106,24 +107,38 @@ class _SpeedometerThrobberPainter extends CustomPainter {
       canvas.drawLine(inner, outer, tickPaint);
     }
 
-    final needleAngle = startAngle + (sweepAngle * (0.18 + progress * 0.64));
-    final needlePaint = Paint()
-      ..color = AppPalette.red.withValues(alpha: 0.85)
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 3;
-    canvas.drawLine(
-      center,
-      Offset(
-        center.dx + math.cos(needleAngle) * (widgetLogoNeedleLength(size)),
-        center.dy + math.sin(needleAngle) * (widgetLogoNeedleLength(size)),
-      ),
-      needlePaint,
+    final needleAngle = startAngle + activeSweep;
+    final needleLength = radius * 0.86;
+    final baseLength = radius * 0.13;
+    final halfBaseWidth = radius * 0.035;
+    final tip = Offset(
+      center.dx + math.cos(needleAngle) * needleLength,
+      center.dy + math.sin(needleAngle) * needleLength,
     );
-    canvas.drawCircle(center, 5, Paint()..color = AppPalette.red);
+    final baseCenter = Offset(
+      center.dx - math.cos(needleAngle) * baseLength,
+      center.dy - math.sin(needleAngle) * baseLength,
+    );
+    final perpendicular = Offset(
+      math.cos(needleAngle + math.pi / 2),
+      math.sin(needleAngle + math.pi / 2),
+    );
+    final needlePath = Path()
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(
+        baseCenter.dx + perpendicular.dx * halfBaseWidth,
+        baseCenter.dy + perpendicular.dy * halfBaseWidth,
+      )
+      ..lineTo(
+        baseCenter.dx - perpendicular.dx * halfBaseWidth,
+        baseCenter.dy - perpendicular.dy * halfBaseWidth,
+      )
+      ..close();
+    canvas.drawShadow(needlePath, AppPalette.red, 8, false);
+    canvas.drawPath(needlePath, Paint()..color = AppPalette.red);
+    canvas.drawCircle(center, 5.5, Paint()..color = AppPalette.black);
+    canvas.drawCircle(center, 3, Paint()..color = AppPalette.red);
   }
-
-  double widgetLogoNeedleLength(Size size) =>
-      math.min(size.width, size.height) * 0.26;
 
   @override
   bool shouldRepaint(covariant _SpeedometerThrobberPainter oldDelegate) {

@@ -255,6 +255,37 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void addOwnerCarForCustomer({
+    required String customerUserId,
+    required String carNumber,
+    required String model,
+    required String fuelType,
+    required int year,
+    String? imagePath,
+  }) {
+    final customer = userById(customerUserId);
+    if (customer == null || customer.role != UserRole.customer) return;
+    final normalizedNumber = carNumber.trim();
+    if (normalizedNumber.isEmpty || model.trim().isEmpty) return;
+
+    _cars.insert(
+      0,
+      CarProfile(
+        id: 'car-${DateTime.now().millisecondsSinceEpoch}',
+        userId: customerUserId,
+        carNumber: normalizedNumber,
+        model: model.trim(),
+        fuelType: fuelType.trim().isEmpty ? 'Petrol' : fuelType.trim(),
+        year: year,
+        isActive: false,
+        imageUrl: imagePath == null || imagePath.trim().isEmpty
+            ? CarMediaService.imageForModel(model, year: year)
+            : imagePath.trim(),
+      ),
+    );
+    notifyListeners();
+  }
+
   List<ServiceJob> jobsForCar(String carId) {
     return jobs.where((job) => job.carId == carId).toList();
   }
@@ -334,9 +365,11 @@ class AppController extends ChangeNotifier {
   }
 
   GarageUser? customerByPhone(String phone) {
-    final normalized = phone.trim();
+    final normalized = _normalizeIndianPhoneForStorage(phone);
     return customers
-        .where((user) => user.phone.trim() == normalized)
+        .where(
+          (user) => _normalizeIndianPhoneForStorage(user.phone) == normalized,
+        )
         .firstOrNull;
   }
 
@@ -586,7 +619,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void sendDocument(
+  ServiceDocument? sendDocument(
     DocumentDraft draft, {
     String? customerUserId,
     String? fuelType,
@@ -603,28 +636,26 @@ class AppController extends ChangeNotifier {
     final relatedJob = targetCar == null ? null : latestJobForCar(targetCar.id);
     final now = DateTime.now();
 
-    _documents.insert(
-      0,
-      ServiceDocument(
-        id: 'doc-${now.millisecondsSinceEpoch}',
-        userId: customerId,
-        carId: targetCar?.id ?? '',
-        jobId: relatedJob?.id ?? '',
-        type: draft.type,
-        title: draft.documentNumber,
-        items: draft.items,
-        total: draft.total,
-        approvalState:
-            draft.type == DocumentType.invoice ||
-                draft.type == DocumentType.jobCard
-            ? ApprovalState.approved
-            : ApprovalState.pending,
-        paymentState: PaymentState.pending,
-        createdAt: now,
-        updatedAt: now,
-        pdfLabel: '${draft.type.label} PDF',
-      ),
+    final document = ServiceDocument(
+      id: 'doc-${now.millisecondsSinceEpoch}',
+      userId: customerId,
+      carId: targetCar?.id ?? '',
+      jobId: relatedJob?.id ?? '',
+      type: draft.type,
+      title: draft.documentNumber,
+      items: draft.items,
+      total: draft.total,
+      approvalState:
+          draft.type == DocumentType.invoice ||
+              draft.type == DocumentType.jobCard
+          ? ApprovalState.approved
+          : ApprovalState.pending,
+      paymentState: PaymentState.pending,
+      createdAt: now,
+      updatedAt: now,
+      pdfLabel: '${draft.type.label} PDF',
     );
+    _documents.insert(0, document);
 
     _notifications.insert(
       0,
@@ -637,6 +668,7 @@ class AppController extends ChangeNotifier {
       ),
     );
     notifyListeners();
+    return document;
   }
 
   CarProfile? _resolveDraftCar(
@@ -685,7 +717,7 @@ class AppController extends ChangeNotifier {
     final user = GarageUser(
       id: 'customer-${DateTime.now().millisecondsSinceEpoch}',
       name: draft.customerName.isEmpty ? 'New Customer' : draft.customerName,
-      phone: draft.customerPhone,
+      phone: _normalizeIndianPhoneForStorage(draft.customerPhone),
       role: UserRole.customer,
     );
     _users.insert(0, user);
@@ -816,6 +848,78 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void sendDocumentInChat(ServiceDocument document, {String? attachmentPath}) {
+    final car = _cars.where((item) => item.id == document.carId).firstOrNull;
+    final customerId = car?.userId ?? document.userId;
+    if (customerId.isEmpty) return;
+
+    sendOwnerMessage(
+      customerUserId: customerId,
+      topic: document.type.label,
+      message:
+          '${document.type.label} ${document.title} shared. Total: ${document.total.toStringAsFixed(0)}. PDF attached for WhatsApp sharing.',
+      carId: document.carId.isEmpty ? null : document.carId,
+      attachmentPath: attachmentPath,
+    );
+  }
+
+  void markConversationReadByOwner(String customerUserId) {
+    var changed = false;
+    for (var index = 0; index < _messages.length; index++) {
+      final message = _messages[index];
+      if (message.userId == customerUserId &&
+          !message.sentByOwner &&
+          !message.isRead) {
+        _messages[index] = message.copyWith(isRead: true);
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  void markConversationReadByCustomer(String customerUserId) {
+    var changed = false;
+    for (var index = 0; index < _messages.length; index++) {
+      final message = _messages[index];
+      if (message.userId == customerUserId &&
+          message.sentByOwner &&
+          !message.isRead) {
+        _messages[index] = message.copyWith(isRead: true);
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  int unreadMessageCountForCurrentSession() {
+    final currentSession = session;
+    if (currentSession == null) return 0;
+    if (currentSession.role.isOwner) {
+      return _messages
+          .where((message) => !message.sentByOwner && !message.isRead)
+          .length;
+    }
+    return _messages
+        .where(
+          (message) =>
+              message.userId == currentSession.user.id &&
+              message.sentByOwner &&
+              !message.isRead,
+        )
+        .length;
+  }
+
+  int unreadIncomingCountForCustomer(String customerUserId) {
+    return _messages
+        .where(
+          (message) =>
+              message.userId == customerUserId &&
+              !message.sentByOwner &&
+              !message.isRead,
+        )
+        .length;
+  }
+
   void markDocumentPaid(String documentId) {
     final index = _documents.indexWhere(
       (document) => document.id == documentId,
@@ -860,7 +964,8 @@ class AppController extends ChangeNotifier {
         'Vehicle: ${car?.carNumber ?? '-'}\n'
         'Date: ${_formatWhatsappDate(document.updatedAt)}\n'
         'Total: ${document.total.toStringAsFixed(0)}\n'
-        'Status: ${document.approvalState.name}';
+        'Status: ${document.approvalState.name}\n'
+        'PDF: ${document.title}.pdf';
   }
 
   String buildPaymentReminderMessage(ServiceDocument document) {
@@ -892,6 +997,20 @@ class AppController extends ChangeNotifier {
     final day = value.day.toString().padLeft(2, '0');
     final month = value.month.toString().padLeft(2, '0');
     return '$day/$month/${value.year} $hour:$minute';
+  }
+
+  String _normalizeIndianPhoneForStorage(String phone) {
+    var digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.startsWith('00')) {
+      digits = digits.substring(2);
+    }
+    if (digits.startsWith('91') && digits.length == 12) {
+      digits = digits.substring(2);
+    }
+    if (digits.startsWith('0') && digits.length == 11) {
+      digits = digits.substring(1);
+    }
+    return digits;
   }
 }
 

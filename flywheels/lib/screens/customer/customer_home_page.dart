@@ -4,13 +4,16 @@ import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/screens/shared/document_pdf_viewer_page.dart';
 import 'package:flywheels/services/car_media_service.dart';
+import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
+import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key});
@@ -42,7 +45,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     if (!mounted) return;
     setState(() => _pickingProfilePhoto = false);
     if (image == null) return;
-    FlywheelsScope.of(context).updateProfilePhoto(image.path);
+    FlywheelsScope.read(context).updateProfilePhoto(image.path);
   }
 
   Future<void> _showGaragePhotoSheet(
@@ -90,7 +93,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () {
-                    FlywheelsScope.of(context).requestGaragePhotos(
+                    FlywheelsScope.read(context).requestGaragePhotos(
                       car.id,
                       note: noteController.text.trim(),
                     );
@@ -108,7 +111,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   }
 
   void _showAddCarSheet(BuildContext context) {
-    final controller = FlywheelsScope.of(context);
+    final controller = FlywheelsScope.read(context);
     final carNumberController = TextEditingController();
     final modelController = TextEditingController();
     final fuelController = TextEditingController();
@@ -284,7 +287,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
 
   void _showQuotationRequestSheet(BuildContext context, CarProfile car) {
     final concernController = TextEditingController();
-    final controller = FlywheelsScope.of(context);
+    final controller = FlywheelsScope.read(context);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -337,14 +340,85 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     ).whenComplete(concernController.dispose);
   }
 
+  Future<String?> _showGoogleMapsLocationPicker(
+    BuildContext context,
+    CarProfile car,
+  ) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick pickup location'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 170,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: AppPalette.soft,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppPalette.border),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: CustomPaint(painter: _MapPickerGridPainter()),
+                    ),
+                    const Center(
+                      child: Icon(
+                        Icons.location_pin,
+                        color: AppPalette.red,
+                        size: 42,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Use the map pin for ${car.carNumber}, or continue with manual address entry.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Manual entry'),
+          ),
+          OutlinedButton(
+            onPressed: () async {
+              final uri = Uri.parse(
+                'https://www.google.com/maps/search/?api=1&query=current%20location',
+              );
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            child: const Text('Open Google Maps'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(
+              context,
+            ).pop('Google Maps pin selected near current location'),
+            child: const Text('Use pin'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showPickupScheduler(
     BuildContext context,
     CarProfile car,
   ) async {
-    final controller = FlywheelsScope.of(context);
+    final controller = FlywheelsScope.read(context);
     final addressController = TextEditingController();
     DateTime pickupTime = DateTime.now().add(const Duration(hours: 3));
     bool locationAccessGranted = false;
+    bool mapsLocationSelected = false;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -406,6 +480,55 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                       child: const Text('Change'),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final selectedAddress =
+                                await _showGoogleMapsLocationPicker(
+                                  context,
+                                  car,
+                                );
+                            if (selectedAddress == null) return;
+                            if (!context.mounted) return;
+                            setSheetState(() {
+                              mapsLocationSelected = true;
+                              locationAccessGranted = true;
+                              addressController.text = selectedAddress;
+                            });
+                          },
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text('Google Maps picker'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setSheetState(() {
+                              mapsLocationSelected = false;
+                              if (addressController.text.startsWith(
+                                'Google Maps pin selected',
+                              )) {
+                                addressController.clear();
+                              }
+                            });
+                          },
+                          icon: const Icon(Icons.edit_location_alt_outlined),
+                          label: const Text('Manual entry'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (mapsLocationSelected) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Maps pin selected. You can still edit the address below.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   TextField(
                     controller: addressController,
@@ -581,7 +704,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                         );
                         final path = result?.files.single.path;
                         if (path == null || !context.mounted) return;
-                        FlywheelsScope.of(context).addCustomerAssetDocument(
+                        FlywheelsScope.read(context).addCustomerAssetDocument(
                           carId: car.id,
                           type: type,
                           title: titleController.text.trim(),
@@ -604,7 +727,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   }
 
   void _openDocument(BuildContext context, ServiceDocument document) {
-    final controller = FlywheelsScope.of(context);
+    final controller = FlywheelsScope.read(context);
     final car = controller.cars
         .where((item) => item.id == document.carId)
         .firstOrNull;
@@ -616,8 +739,179 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     );
   }
 
+  Future<void> _downloadDocumentPdf(ServiceDocument document) async {
+    final controller = FlywheelsScope.read(context);
+    final car = controller.cars
+        .where((item) => item.id == document.carId)
+        .firstOrNull;
+    final customer = car == null ? null : controller.customerForCar(car.id);
+    final export = await DocumentPdfExportService.exportDocument(
+      document: document,
+      car: car,
+      customer: customer,
+    );
+    if (!mounted) return;
+    _showMessage('${document.title} PDF saved to ${export.filePath}');
+  }
+
+  Future<void> _shareDocumentOnWhatsapp(ServiceDocument document) async {
+    final controller = FlywheelsScope.read(context);
+    final car = controller.cars
+        .where((item) => item.id == document.carId)
+        .firstOrNull;
+    final customer = car == null ? null : controller.customerForCar(car.id);
+    final export = await DocumentPdfExportService.exportDocument(
+      document: document,
+      car: car,
+      customer: customer,
+    );
+    final message = controller.buildDocumentWhatsappMessage(document);
+    final sent = await WhatsappShareService.sharePdf(
+      filePath: export.filePath,
+      fileName: export.fileName,
+      message: message,
+    );
+    if (!mounted) return;
+    _showMessage(
+      sent
+          ? 'PDF ready for WhatsApp sharing.'
+          : 'PDF saved. WhatsApp share sheet could not be opened.',
+    );
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _selectTab(int index) {
+    final controller = FlywheelsScope.read(context);
+    if (index == 2) {
+      controller.markConversationReadByCustomer(controller.session!.user.id);
+    }
+    setState(() => _currentIndex = index);
+  }
+
+  void _showCarHistorySheet(BuildContext context, CarProfile car) {
+    final controller = FlywheelsScope.read(context);
+    final history = controller.jobsForCar(car.id);
+    final documents = controller.documentsForCar(car.id);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.76,
+              child: ListView(
+                children: [
+                  Row(
+                    children: [
+                      AppImage(
+                        path: car.imageUrl,
+                        width: 84,
+                        height: 62,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              car.carNumber,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text(
+                              '${car.model} | ${car.fuelType} | ${car.year}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Car history',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  if (history.isEmpty)
+                    Text(
+                      'No service history yet.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ...history.map(
+                    (job) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.timeline_rounded),
+                      title: Text(job.status.label),
+                      subtitle: Text(
+                        'ETA ${formatDateTime(job.expectedCompletion)} | Pickup ${job.pickupState.label}',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Past bills',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  if (documents.isEmpty)
+                    Text(
+                      'No bills or service documents yet.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ...documents.map(
+                    (document) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.receipt_long_outlined),
+                      title: Text(document.title),
+                      subtitle: Text(
+                        '${document.type.label} | ${formatCurrency(document.total)} | ${document.paymentState.name}',
+                      ),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'open') {
+                            Navigator.of(context).pop();
+                            _openDocument(context, document);
+                          } else if (value == 'download') {
+                            _downloadDocumentPdf(document);
+                          } else if (value == 'whatsapp') {
+                            _shareDocumentOnWhatsapp(document);
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(value: 'open', child: Text('Open PDF')),
+                          PopupMenuItem(
+                            value: 'download',
+                            child: Text('Download PDF'),
+                          ),
+                          PopupMenuItem(
+                            value: 'whatsapp',
+                            child: Text('Share WhatsApp'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _sendChat(BuildContext context) {
-    final controller = FlywheelsScope.of(context);
+    final controller = FlywheelsScope.read(context);
     if (_chatMessageController.text.trim().isEmpty) return;
     controller.sendCustomerMessage(
       topic: _chatTopic,
@@ -627,13 +921,22 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     setState(() => _chatMessageController.clear());
   }
 
+  void _insertQuickMessage(String message) {
+    setState(() {
+      _chatMessageController.text = message;
+      _chatMessageController.selection = TextSelection.collapsed(
+        offset: _chatMessageController.text.length,
+      );
+    });
+  }
+
   Future<void> _sendChatPhoto(BuildContext context) async {
     final image = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 85,
     );
     if (image == null || !context.mounted) return;
-    FlywheelsScope.of(context).sendCustomerMessage(
+    FlywheelsScope.read(context).sendCustomerMessage(
       topic: _chatTopic,
       message: _chatMessageController.text.trim(),
       carId: _chatCarId,
@@ -647,28 +950,52 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     final controller = FlywheelsScope.of(context);
     final activeCar = controller.activeCar;
     final titles = ['Home', 'Documents', 'Chat', 'Profile'];
-    final appBarTitle = _currentIndex == 0
-        ? 'Welcome back, ${controller.session!.user.name}'
-        : titles[_currentIndex];
+    final showCarStrip = _currentIndex == 0 || _currentIndex == 1;
 
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            const BrandLogo(size: 28),
-            const SizedBox(width: 10),
-            Expanded(child: Text(appBarTitle)),
+            const BrandLogo(size: 30),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _currentIndex == 0
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Welcome',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        Text(
+                          controller.session?.user.name.toUpperCase() ?? 'CUSTOMER',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                      ],
+                    )
+                  : Text(titles[_currentIndex]),
+            ),
           ],
         ),
       ),
       body: Column(
         children: [
-          _CustomerCarStrip(
-            cars: controller.cars,
-            activeCarId: activeCar?.id,
-            onSelect: controller.setActiveCar,
-            onAddCar: () => _showAddCarSheet(context),
-          ),
+          if (showCarStrip)
+            _CustomerCarStrip(
+              cars: controller.cars,
+              activeCarId: activeCar?.id,
+              onSelect: controller.setActiveCar,
+              onAddCar: () => _showAddCarSheet(context),
+            ),
           Expanded(
             child: IndexedStack(
               index: _currentIndex,
@@ -679,26 +1006,32 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                       _showQuotationRequestSheet(context, car),
                   onRequestImages: (car) => _showGaragePhotoSheet(context, car),
                   onSchedulePickup: (car) => _showPickupScheduler(context, car),
+                  onOpenChat: () => _selectTab(2),
+                  onOpenHistory: (car) => _showCarHistorySheet(context, car),
+                  onOpenBills: () => _selectTab(1),
                 ),
                 _CustomerDocsTab(
                   activeCar: activeCar,
                   onOpenDocument: (document) =>
                       _openDocument(context, document),
+                  onDownloadDocument: _downloadDocumentPdf,
+                  onShareDocument: _shareDocumentOnWhatsapp,
                   onUploadVehicleDocument: (car) =>
                       _showUploadVehicleDocumentSheet(context, car),
                 ),
                 _CustomerChatTab(
-                  activeCarId: activeCar?.id,
                   chatMessageController: _chatMessageController,
                   chatTopic: _chatTopic,
                   chatCarId: _chatCarId,
                   onTopicChanged: (value) => setState(() => _chatTopic = value),
                   onCarChanged: (value) => setState(() => _chatCarId = value),
+                  onQuickMessage: _insertQuickMessage,
                   onSend: () => _sendChat(context),
                   onSendPhoto: () => _sendChatPhoto(context),
                 ),
                 _CustomerProfileTab(
                   onAddCar: () => _showAddCarSheet(context),
+                  onOpenCar: (car) => _showCarHistorySheet(context, car),
                   onPickProfilePhoto: _pickProfilePhoto,
                   isPickingProfilePhoto: _pickingProfilePhoto,
                 ),
@@ -709,7 +1042,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       ),
       bottomNavigationBar: AppBottomNavBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: _selectTab,
+        badgeCounts: [
+          0,
+          0,
+          controller.unreadMessageCountForCurrentSession(),
+          0,
+        ],
         items: const [
           AppBottomNavItem(
             label: 'Home',
@@ -735,6 +1074,44 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       ),
     );
   }
+}
+
+class _MapPickerGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final roadPaint = Paint()
+      ..color = AppPalette.white
+      ..strokeWidth = 7
+      ..strokeCap = StrokeCap.round;
+    final minorRoadPaint = Paint()
+      ..color = AppPalette.border
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+
+    for (var x = size.width * 0.16; x < size.width; x += size.width * 0.22) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x + 18, size.height),
+        minorRoadPaint,
+      );
+    }
+    for (var y = size.height * 0.18; y < size.height; y += size.height * 0.24) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y - 12), minorRoadPaint);
+    }
+    canvas.drawLine(
+      Offset(size.width * 0.08, size.height * 0.76),
+      Offset(size.width * 0.92, size.height * 0.22),
+      roadPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.18, size.height * 0.12),
+      Offset(size.width * 0.76, size.height * 0.86),
+      roadPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MapPickerGridPainter oldDelegate) => false;
 }
 
 class _CustomerCarStrip extends StatefulWidget {
@@ -766,7 +1143,7 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
     _pageIndex = _activeCarIndex();
     _pageController = PageController(
       initialPage: _pageIndex,
-      viewportFraction: 0.9,
+      viewportFraction: 1,
     );
   }
 
@@ -812,7 +1189,7 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
     final controller = FlywheelsScope.of(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
       decoration: const BoxDecoration(
         color: AppPalette.white,
         border: Border(bottom: BorderSide(color: AppPalette.border)),
@@ -821,13 +1198,13 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
         children: [
           Row(
             children: [
-              Text('My cars', style: Theme.of(context).textTheme.titleLarge),
+              Text('My cars', style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: [
-              IconButton.filledTonal(
+              IconButton.outlined(
                 onPressed: _pageIndex == 0
                     ? null
                     : () => _goToPage(_pageIndex - 1),
@@ -836,10 +1213,9 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
               const SizedBox(width: 8),
               Expanded(
                 child: SizedBox(
-                  height: 118,
+                  height: 96,
                   child: PageView.builder(
                     controller: _pageController,
-                    physics: const NeverScrollableScrollPhysics(),
                     padEnds: false,
                     itemCount: _pageCount,
                     onPageChanged: (index) =>
@@ -866,7 +1242,7 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton.filledTonal(
+              IconButton.outlined(
                 onPressed: _pageIndex == _pageCount - 1
                     ? null
                     : () => _goToPage(_pageIndex + 1),
@@ -874,8 +1250,31 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
               ),
             ],
           ),
+          if (widget.cars.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _buildPageDots(),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildPageDots() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(_pageCount, (index) {
+        final isActiveLine = index == _pageIndex;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: isActiveLine ? 24 : 16,
+          height: 3,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(1.5),
+            color: isActiveLine ? AppPalette.red : AppPalette.border,
+          ),
+        );
+      }),
     );
   }
 }
@@ -901,17 +1300,20 @@ class _CustomerCarCard extends StatelessWidget {
       onTap: () => onSelect(car.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
-          color: isActive ? AppPalette.red : AppPalette.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppPalette.red, width: isActive ? 2 : 1.5),
+          color: isActive ? AppPalette.black : AppPalette.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isActive ? AppPalette.black : AppPalette.border,
+            width: 1.2,
+          ),
           boxShadow: [
             if (isActive)
               BoxShadow(
                 color: AppPalette.red.withValues(alpha: 0.16),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
           ],
         ),
@@ -925,6 +1327,18 @@ class _CustomerCarCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(
+                          statusLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: AppPalette.red,
+                                fontWeight: FontWeight.w900,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
                         Text(
                           car.carNumber,
                           maxLines: 1,
@@ -948,29 +1362,16 @@ class _CustomerCarCard extends StatelessWidget {
                               ),
                         ),
                         const Spacer(),
-                        Text(
-                          statusLabel,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(
-                                color: isActive
-                                    ? AppPalette.white
-                                    : AppPalette.red,
-                                fontWeight: FontWeight.w900,
-                                fontStyle: FontStyle.italic,
-                              ),
-                        ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                     child: AppImage(
                       path: car.imageUrl,
-                      width: 86,
-                      height: 62,
+                      width: 78,
+                      height: 58,
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -994,11 +1395,11 @@ class _AddCarCard extends StatelessWidget {
     return GestureDetector(
       onTap: onAddCar,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: AppPalette.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppPalette.red, width: 1.5),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppPalette.border, width: 1.2),
         ),
         child: Column(
           children: [
@@ -1006,19 +1407,19 @@ class _AddCarCard extends StatelessWidget {
               child: Row(
                 children: [
                   Container(
-                    width: 50,
-                    height: 50,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFDDDDDD),
-                      shape: BoxShape.circle,
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppPalette.black,
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
                       Icons.add,
-                      color: AppPalette.black,
-                      size: 30,
+                      color: AppPalette.white,
+                      size: 24,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'ADD NEW CAR',
@@ -1046,12 +1447,18 @@ class _CustomerHomeTab extends StatelessWidget {
     required this.onRequestQuotation,
     required this.onRequestImages,
     required this.onSchedulePickup,
+    required this.onOpenChat,
+    required this.onOpenHistory,
+    required this.onOpenBills,
   });
 
   final CarProfile? activeCar;
   final ValueChanged<CarProfile> onRequestQuotation;
   final ValueChanged<CarProfile> onRequestImages;
   final ValueChanged<CarProfile> onSchedulePickup;
+  final VoidCallback onOpenChat;
+  final ValueChanged<CarProfile> onOpenHistory;
+  final VoidCallback onOpenBills;
 
   @override
   Widget build(BuildContext context) {
@@ -1059,38 +1466,58 @@ class _CustomerHomeTab extends StatelessWidget {
     final job = activeCar == null
         ? null
         : controller.latestJobForCar(activeCar!.id);
-    final photos = activeCar == null
-        ? const <GaragePhotoUpdate>[]
-        : controller.photoUpdatesForCar(activeCar!.id);
 
     return ListView(
       key: const PageStorageKey('customer-home'),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       children: [
         if (activeCar == null)
           const _EmptyStateCard(
             title: 'No car selected',
-            subtitle:
-                'Add a car or choose one above to view status, documents, and updates.',
+            subtitle: 'Add a car or choose one above to view its timeline.',
           ),
         if (activeCar != null) ...[
-          if (job != null) ...[
-            _CompactTimelineCard(job: job),
-            const SizedBox(height: 16),
-          ],
-          _CarOverviewCard(
-            car: activeCar!,
-            job: job,
-            photoCount: photos.length,
-            onRequestPickup: () => onSchedulePickup(activeCar!),
-            onRequestQuotation: () => onRequestQuotation(activeCar!),
-            onRequestImages: () => onRequestImages(activeCar!),
-          ),
-          const SizedBox(height: 16),
-          _GaragePhotoGalleryCard(
-            car: activeCar!,
-            updates: photos,
-            onRequestImages: () => onRequestImages(activeCar!),
+          if (job != null) _CompactTimelineCard(job: job),
+          if (job == null)
+            _EmptyStateCard(
+              title: activeCar!.carNumber,
+              subtitle: 'No active service timeline yet.',
+            ),
+          const SizedBox(height: 12),
+          GearboxActionGrid(
+            children: [
+              AutomotiveControlButton(
+                icon: Icons.receipt_long_outlined,
+                label: 'Quote',
+                active: true,
+                onPressed: () => onRequestQuotation(activeCar!),
+              ),
+              AutomotiveControlButton(
+                icon: Icons.local_shipping_outlined,
+                label: 'Pickup',
+                onPressed: () => onSchedulePickup(activeCar!),
+              ),
+              AutomotiveControlButton(
+                icon: Icons.photo_camera_outlined,
+                label: 'Images',
+                onPressed: () => onRequestImages(activeCar!),
+              ),
+              AutomotiveControlButton(
+                icon: Icons.chat_bubble_outline_rounded,
+                label: 'Chat',
+                onPressed: onOpenChat,
+              ),
+              AutomotiveControlButton(
+                icon: Icons.history_rounded,
+                label: 'History',
+                onPressed: () => onOpenHistory(activeCar!),
+              ),
+              AutomotiveControlButton(
+                icon: Icons.receipt_long_rounded,
+                label: 'Bills',
+                onPressed: onOpenBills,
+              ),
+            ],
           ),
         ],
       ],
@@ -1098,20 +1525,35 @@ class _CustomerHomeTab extends StatelessWidget {
   }
 }
 
-class _CustomerDocsTab extends StatelessWidget {
+class _CustomerDocsTab extends StatefulWidget {
   const _CustomerDocsTab({
     required this.activeCar,
     required this.onOpenDocument,
+    required this.onDownloadDocument,
+    required this.onShareDocument,
     required this.onUploadVehicleDocument,
   });
 
   final CarProfile? activeCar;
   final ValueChanged<ServiceDocument> onOpenDocument;
+  final ValueChanged<ServiceDocument> onDownloadDocument;
+  final ValueChanged<ServiceDocument> onShareDocument;
   final ValueChanged<CarProfile> onUploadVehicleDocument;
+
+  @override
+  State<_CustomerDocsTab> createState() => _CustomerDocsTabState();
+}
+
+class _CustomerDocsTabState extends State<_CustomerDocsTab> {
+  bool _showLibrary = false;
+  String _query = '';
+  DocumentType? _filterType;
+  bool _newestFirst = true;
 
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
+    final activeCar = widget.activeCar;
     if (activeCar == null) {
       return const Padding(
         padding: EdgeInsets.all(20),
@@ -1123,193 +1565,209 @@ class _CustomerDocsTab extends StatelessWidget {
       );
     }
 
-    final documents = controller.documentsForCar(activeCar!.id);
-    final assetDocuments = controller.assetDocumentsForCar(activeCar!.id);
+    final documents = controller.documentsForCar(activeCar.id);
+    final assetDocuments = controller.assetDocumentsForCar(activeCar.id);
+    final needle = _query.trim().toLowerCase();
+    final libraryDocuments =
+        documents.where((document) {
+          final carText =
+              '${document.title} ${document.type.label} '
+              '${document.approvalState.name} ${document.paymentState.name}';
+          final matchesQuery =
+              needle.isEmpty || carText.toLowerCase().contains(needle);
+          final matchesFilter =
+              _filterType == null || document.type == _filterType;
+          return matchesQuery && matchesFilter;
+        }).toList()..sort(
+          (left, right) => _newestFirst
+              ? right.updatedAt.compareTo(left.updatedAt)
+              : left.updatedAt.compareTo(right.updatedAt),
+        );
 
     return ListView(
       key: const PageStorageKey('customer-docs'),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            Text('Documents', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(width: 8),
-            Text(
-              activeCar!.carNumber,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(color: AppPalette.red),
+        Text(
+          '${activeCar.carNumber} Documents',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(
+              value: false,
+              icon: Icon(Icons.edit_document),
+              label: Text('Document Studio'),
+            ),
+            ButtonSegment(
+              value: true,
+              icon: Icon(Icons.library_books_outlined),
+              label: Text('Document Library'),
             ),
           ],
+          selected: {_showLibrary},
+          onSelectionChanged: (selection) =>
+              setState(() => _showLibrary = selection.first),
         ),
         const SizedBox(height: 16),
-        _VehicleDocumentVaultCard(
-          car: activeCar!,
-          documents: assetDocuments,
-          onUpload: () => onUploadVehicleDocument(activeCar!),
-        ),
-        const SizedBox(height: 16),
-        _ServiceDocumentsByDateCard(
-          documents: documents,
-          onOpenDocument: onOpenDocument,
-        ),
+        if (!_showLibrary) ...[
+          _VehicleDocumentVaultCard(
+            car: activeCar,
+            documents: assetDocuments,
+            onUpload: () => widget.onUploadVehicleDocument(activeCar),
+          ),
+          const SizedBox(height: 16),
+          _EmptyStateCard(
+            title: 'Create and upload',
+            subtitle:
+                'Use the studio for RC, insurance, PUC, and driving-license records. Service bills and PDFs live in Document Library.',
+          ),
+        ] else ...[
+          TextField(
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search_rounded),
+              hintText: 'Search bills, estimates, invoices',
+            ),
+            onChanged: (value) => setState(() => _query = value),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<DocumentType?>(
+                  initialValue: _filterType,
+                  decoration: const InputDecoration(labelText: 'Filter'),
+                  items: [
+                    const DropdownMenuItem<DocumentType?>(
+                      value: null,
+                      child: Text('All documents'),
+                    ),
+                    ...DocumentType.values.map(
+                      (type) => DropdownMenuItem<DocumentType?>(
+                        value: type,
+                        child: Text(type.label),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _filterType = value),
+                ),
+              ),
+              const SizedBox(width: 10),
+              IconButton.outlined(
+                tooltip: _newestFirst ? 'Newest first' : 'Oldest first',
+                onPressed: () => setState(() => _newestFirst = !_newestFirst),
+                icon: Icon(
+                  _newestFirst ? Icons.south_rounded : Icons.north_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (libraryDocuments.isEmpty)
+            const _EmptyStateCard(
+              title: 'No records found',
+              subtitle: 'Try another search, filter, or car.',
+            ),
+          ...libraryDocuments.map(
+            (document) => _CustomerDocumentLibraryTile(
+              document: document,
+              onOpen: () => widget.onOpenDocument(document),
+              onDownload: () => widget.onDownloadDocument(document),
+              onShare: () => widget.onShareDocument(document),
+            ),
+          ),
+        ],
       ],
     );
   }
 }
 
-class _CustomerChatTab extends StatelessWidget {
-  const _CustomerChatTab({
-    required this.activeCarId,
-    required this.chatMessageController,
-    required this.chatTopic,
-    required this.chatCarId,
-    required this.onTopicChanged,
-    required this.onCarChanged,
-    required this.onSend,
-    required this.onSendPhoto,
+class _CustomerDocumentLibraryTile extends StatelessWidget {
+  const _CustomerDocumentLibraryTile({
+    required this.document,
+    required this.onOpen,
+    required this.onDownload,
+    required this.onShare,
   });
 
-  final String? activeCarId;
-  final TextEditingController chatMessageController;
-  final String chatTopic;
-  final String? chatCarId;
-  final ValueChanged<String> onTopicChanged;
-  final ValueChanged<String?> onCarChanged;
-  final VoidCallback onSend;
-  final VoidCallback onSendPhoto;
+  final ServiceDocument document;
+  final VoidCallback onOpen;
+  final VoidCallback onDownload;
+  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
-    final controller = FlywheelsScope.of(context);
-    final userId = controller.session!.user.id;
-    final selectedCarId = chatCarId;
-    final messages = controller.conversationForUser(
-      userId,
-      carId: selectedCarId,
-    );
-    const topics = [
-      'General enquiry',
-      'Quotation',
-      'Service status',
-      'Pickup and drop',
-      'Photo request',
-      'Payments',
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.all(20),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Card(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(18),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        final message = messages[index];
-                        return _MessageBubble(
-                          message: message,
-                          carLabel: controller.cars
-                              .where((car) => car.id == message.carId)
-                              .firstOrNull
-                              ?.carNumber,
-                        );
-                      },
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            PopupMenuButton<String>(
-                              initialValue: chatTopic,
-                              onSelected: onTopicChanged,
-                              itemBuilder: (context) => topics
-                                  .map(
-                                    (topic) => PopupMenuItem(
-                                      value: topic,
-                                      child: Text(topic),
-                                    ),
-                                  )
-                                  .toList(),
-                              child: Chip(label: Text(chatTopic)),
-                            ),
-                            const SizedBox(width: 8),
-                            PopupMenuButton<String?>(
-                              initialValue: chatCarId,
-                              onSelected: onCarChanged,
-                              itemBuilder: (context) => [
-                                const PopupMenuItem<String?>(
-                                  value: null,
-                                  child: Text('No car selected'),
-                                ),
-                                ...controller.cars.map(
-                                  (car) => PopupMenuItem<String?>(
-                                    value: car.id,
-                                    child: Text(
-                                      '${car.carNumber} - ${car.model}',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              child: Chip(
-                                label: Text(
-                                  chatCarId == null
-                                      ? 'No car'
-                                      : controller.cars
-                                                .where(
-                                                  (car) => car.id == chatCarId,
-                                                )
-                                                .firstOrNull
-                                                ?.carNumber ??
-                                            'Car',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            IconButton.filledTonal(
-                              onPressed: onSendPhoto,
-                              icon: const Icon(Icons.photo_outlined),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: TextField(
-                                controller: chatMessageController,
-                                minLines: 1,
-                                maxLines: 4,
-                                decoration: const InputDecoration(
-                                  hintText: 'Message the garage...',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            FilledButton(
-                              onPressed: onSend,
-                              style: FilledButton.styleFrom(
-                                shape: const CircleBorder(),
-                                padding: const EdgeInsets.all(16),
-                              ),
-                              child: const Icon(Icons.send_rounded),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+          Row(
+            children: [
+              Icon(
+                document.type == DocumentType.invoice
+                    ? Icons.receipt_long_rounded
+                    : Icons.description_outlined,
+                color: AppPalette.black,
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  document.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Text(
+                formatShortDate(document.updatedAt),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onOpen,
+                icon: const Icon(Icons.visibility_rounded),
+                label: const Text('Open'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onDownload,
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('PDF'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onShare,
+                icon: const Icon(Icons.share_rounded),
+                label: const Text('WhatsApp'),
+              ),
+              if (document.type != DocumentType.invoice &&
+                  document.type != DocumentType.jobCard &&
+                  document.approvalState == ApprovalState.pending)
+                FilledButton.icon(
+                  onPressed: () => FlywheelsScope.of(
+                    context,
+                  ).decideDocument(document.id, ApprovalState.approved),
+                  icon: const Icon(Icons.done_rounded),
+                  label: const Text('Approve'),
+                ),
+            ],
           ),
         ],
       ),
@@ -1317,14 +1775,197 @@ class _CustomerChatTab extends StatelessWidget {
   }
 }
 
+class _CustomerChatTab extends StatelessWidget {
+  const _CustomerChatTab({
+    required this.chatMessageController,
+    required this.chatTopic,
+    required this.chatCarId,
+    required this.onTopicChanged,
+    required this.onCarChanged,
+    required this.onQuickMessage,
+    required this.onSend,
+    required this.onSendPhoto,
+  });
+
+  final TextEditingController chatMessageController;
+  final String chatTopic;
+  final String? chatCarId;
+  final ValueChanged<String> onTopicChanged;
+  final ValueChanged<String?> onCarChanged;
+  final ValueChanged<String> onQuickMessage;
+  final VoidCallback onSend;
+  final VoidCallback onSendPhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    final userId = controller.session!.user.id;
+    final user = controller.session!.user;
+    final owner = controller.ownerUser;
+    final messages = controller.conversationForUser(userId);
+    const topics = [
+      'General enquiry',
+      'Car related query',
+      'Payment query',
+      'Quote approval',
+      'Pickup',
+    ];
+    const quickTemplates = [
+      (
+        label: 'Approve quote',
+        message:
+            'Quote approval: I have reviewed the quotation and approve the recommended work.',
+      ),
+      (
+        label: 'Need bill PDF',
+        message:
+            'Please share the latest bill PDF here and on WhatsApp for my records.',
+      ),
+      (
+        label: 'Pickup reminder',
+        message:
+            'Pickup reminder: please confirm the pickup slot and driver details.',
+      ),
+      (
+        label: 'Service complete?',
+        message:
+            'Is the service completed? Please share the final status and delivery timing.',
+      ),
+      (
+        label: 'Payment update',
+        message:
+            'Payment update: I will complete the pending payment and share confirmation shortly.',
+      ),
+    ];
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: topics
+                .map(
+                  (topic) => ChoiceChip(
+                    label: Text(topic),
+                    selected: chatTopic == topic,
+                    onSelected: (_) => onTopicChanged(topic),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        SizedBox(
+          height: 42,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            itemCount: quickTemplates.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final template = quickTemplates[index];
+              return ActionChip(
+                avatar: const Icon(Icons.bolt_rounded, size: 16),
+                label: Text(template.label),
+                onPressed: () => onQuickMessage(template.message),
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            itemCount: messages.length,
+            itemBuilder: (context, index) {
+              final message = messages[index];
+              return MessengerBubble(
+                message: message,
+                fromCurrentUser: !message.sentByOwner,
+                avatarPath: message.sentByOwner
+                    ? owner.profileImagePath
+                    : user.profileImagePath,
+                avatarInitials: message.sentByOwner
+                    ? owner.name.substring(0, 1)
+                    : user.name.substring(0, 1),
+                carLabel: controller.cars
+                    .where((car) => car.id == message.carId)
+                    .firstOrNull
+                    ?.carNumber,
+              );
+            },
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            decoration: const BoxDecoration(
+              color: AppPalette.white,
+              border: Border(top: BorderSide(color: AppPalette.border)),
+            ),
+            child: Row(
+              children: [
+                IconButton.outlined(
+                  onPressed: onSendPhoto,
+                  icon: const Icon(Icons.photo_outlined),
+                ),
+                const SizedBox(width: 8),
+                PopupMenuButton<String?>(
+                  initialValue: chatCarId,
+                  tooltip: 'Select car',
+                  onSelected: onCarChanged,
+                  itemBuilder: (context) => [
+                    const PopupMenuItem<String?>(
+                      value: null,
+                      child: Text('All cars'),
+                    ),
+                    ...controller.cars.map(
+                      (car) => PopupMenuItem<String?>(
+                        value: car.id,
+                        child: Text('${car.carNumber} - ${car.model}'),
+                      ),
+                    ),
+                  ],
+                  icon: const Icon(Icons.directions_car_rounded),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: chatMessageController,
+                    minLines: 1,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: chatCarId == null
+                          ? 'Message the garage...'
+                          : 'Message about selected car...',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: onSend,
+                  icon: const Icon(Icons.send_rounded),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _CustomerProfileTab extends StatelessWidget {
   const _CustomerProfileTab({
     required this.onAddCar,
+    required this.onOpenCar,
     required this.onPickProfilePhoto,
     required this.isPickingProfilePhoto,
   });
 
   final VoidCallback onAddCar;
+  final ValueChanged<CarProfile> onOpenCar;
   final VoidCallback onPickProfilePhoto;
   final bool isPickingProfilePhoto;
 
@@ -1368,10 +2009,12 @@ class _CustomerProfileTab extends StatelessWidget {
                     ],
                   ),
                 ),
-                OutlinedButton(
+                IconButton.outlined(
                   onPressed: isPickingProfilePhoto ? null : onPickProfilePhoto,
-                  child: Text(
-                    isPickingProfilePhoto ? 'Loading...' : 'Upload photo',
+                  icon: Icon(
+                    isPickingProfilePhoto
+                        ? Icons.hourglass_top_rounded
+                        : Icons.photo_camera_outlined,
                   ),
                 ),
               ],
@@ -1410,111 +2053,56 @@ class _CustomerProfileTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: controller.logout,
-            child: const Text('Logout'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CarOverviewCard extends StatelessWidget {
-  const _CarOverviewCard({
-    required this.car,
-    required this.job,
-    required this.photoCount,
-    required this.onRequestPickup,
-    required this.onRequestQuotation,
-    required this.onRequestImages,
-  });
-
-  final CarProfile car;
-  final ServiceJob? job;
-  final int photoCount;
-  final VoidCallback onRequestPickup;
-  final VoidCallback onRequestQuotation;
-  final VoidCallback onRequestImages;
-
-  @override
-  Widget build(BuildContext context) {
-    final currentStatus = job?.status.label;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Selected car overview',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Row(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                AppImage(
-                  path: car.imageUrl,
-                  width: 100,
-                  height: 82,
-                  borderRadius: BorderRadius.circular(18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Cars',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    IconButton.outlined(
+                      onPressed: onAddCar,
+                      icon: const Icon(Icons.add_rounded),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        car.carNumber,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text('${car.model} | ${car.fuelType} | ${car.year}'),
-                      const SizedBox(height: 4),
-                      Text(
-                        currentStatus == null
-                            ? 'Ready for new service'
-                            : 'Current status: $currentStatus',
-                      ),
-                      const SizedBox(height: 4),
-                      Text('$photoCount garage photo updates available'),
-                      if (job?.pickupAddress != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Pickup address: ${job!.pickupAddress}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ],
+                const SizedBox(height: 8),
+                ...controller.cars.map(
+                  (car) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    onTap: () => onOpenCar(car),
+                    leading: AppImage(
+                      path: car.imageUrl,
+                      width: 54,
+                      height: 42,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    title: Text(car.carNumber),
+                    subtitle: Text(car.model),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton(
-                  onPressed: onRequestQuotation,
-                  child: const Text('Request quotation'),
-                ),
-                OutlinedButton(
-                  onPressed: onRequestPickup,
-                  child: const Text('Schedule pickup'),
-                ),
-                OutlinedButton(
-                  onPressed: onRequestImages,
-                  child: const Text('Ask for images'),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: controller.logout,
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Logout'),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1531,168 +2119,47 @@ class _CompactTimelineCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Live service status',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            Column(
-              children: List.generate(statuses.length, (index) {
-                final status = statuses[index];
-                final isReached = index <= activeIndex;
-                final isActive = index == activeIndex;
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Column(
-                      children: [
-                        Icon(
-                          isReached
-                              ? Icons.check_circle_rounded
-                              : Icons.radio_button_unchecked_rounded,
-                          color: isReached ? AppPalette.red : AppPalette.muted,
-                          size: 22,
-                        ),
-                        if (index != statuses.length - 1)
-                          Container(
-                            width: 2,
-                            height: 34,
-                            color: isReached
-                                ? AppPalette.red
-                                : AppPalette.border,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: Text(
-                          status.label,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: isActive
-                                    ? AppPalette.red
-                                    : AppPalette.black,
-                                fontWeight: isReached
-                                    ? FontWeight.w900
-                                    : FontWeight.w600,
-                                fontStyle: isReached
-                                    ? FontStyle.italic
-                                    : FontStyle.normal,
-                              ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 18,
-              runSpacing: 8,
-              children: [
-                Text(
-                  'Expected completion: ${formatDateTime(job.expectedCompletion)}',
-                ),
-                Text('Pickup time: ${formatDateTime(job.pickupTime)}'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GaragePhotoGalleryCard extends StatelessWidget {
-  const _GaragePhotoGalleryCard({
-    required this.car,
-    required this.updates,
-    required this.onRequestImages,
-  });
-
-  final CarProfile car;
-  final List<GaragePhotoUpdate> updates;
-  final VoidCallback onRequestImages;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                const LedIndicator(active: true),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Garage photo updates',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    'Live service status',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                OutlinedButton(
-                  onPressed: onRequestImages,
-                  child: const Text('Request more'),
+                Text(
+                  job.status.label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppPalette.red,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Latest photos shared for ${car.carNumber}.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            if (updates.isEmpty)
-              Text(
-                'The garage has not shared any images yet.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ...updates
-                .take(3)
-                .map(
-                  (update) => Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppPalette.soft,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Row(
-                      children: [
-                        AppImage(
-                          path: update.imagePath,
-                          width: 92,
-                          height: 72,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                update.caption,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                formatDateTime(update.createdAt),
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+            const SizedBox(height: 14),
+            HorizontalServiceTimeline(status: statuses[activeIndex]),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              children: [
+                Text(
+                  'ETA ${formatDateTime(job.expectedCompletion)}',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
+                Text(
+                  'Pickup ${formatDateTime(job.pickupTime)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -1715,7 +2182,7 @@ class _VehicleDocumentVaultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1723,30 +2190,17 @@ class _VehicleDocumentVaultCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Vehicle document vault',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    'Vehicle documents',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                OutlinedButton(
+                IconButton.outlined(
                   onPressed: onUpload,
-                  child: const Text('Add document'),
+                  icon: const Icon(Icons.upload_file_rounded),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Store RC, driving license, insurance, and related files for ${car.carNumber}.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: PersonalDocumentType.values
-                  .map((type) => Chip(label: Text(type.label)))
-                  .toList(),
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             if (documents.isEmpty)
               Text(
                 'No personal vehicle documents uploaded yet.',
@@ -1755,18 +2209,18 @@ class _VehicleDocumentVaultCard extends StatelessWidget {
             ...documents.map(
               (document) => Container(
                 margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: AppPalette.soft,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
                     AppImage(
                       path: document.filePath,
-                      width: 76,
-                      height: 60,
-                      borderRadius: BorderRadius.circular(14),
+                      width: 64,
+                      height: 52,
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1775,7 +2229,7 @@ class _VehicleDocumentVaultCard extends StatelessWidget {
                         children: [
                           Text(
                             document.title,
-                            style: Theme.of(context).textTheme.titleLarge,
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -1790,135 +2244,6 @@ class _VehicleDocumentVaultCard extends StatelessWidget {
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ServiceDocumentsByDateCard extends StatelessWidget {
-  const _ServiceDocumentsByDateCard({
-    required this.documents,
-    required this.onOpenDocument,
-  });
-
-  final List<ServiceDocument> documents;
-  final ValueChanged<ServiceDocument> onOpenDocument;
-
-  @override
-  Widget build(BuildContext context) {
-    final groups = <String, List<ServiceDocument>>{};
-    for (final document in documents) {
-      final key = formatShortDate(document.updatedAt);
-      groups.putIfAbsent(key, () => []).add(document);
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Service documents by date',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Newest quotations, estimates, invoices, and job cards appear first.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            if (documents.isEmpty)
-              Text(
-                'No service documents shared for this car yet.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ...groups.entries.map((entry) {
-              final docs = entry.value
-                ..sort(
-                  (left, right) => right.updatedAt.compareTo(left.updatedAt),
-                );
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.key,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 10),
-                    ...docs.map(
-                      (document) => Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppPalette.soft,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    document.type.label,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
-                                  ),
-                                ),
-                                Text(
-                                  formatDateTime(document.updatedAt),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '${document.title} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: () => onOpenDocument(document),
-                                    child: const Text('Open'),
-                                  ),
-                                ),
-                                if (document.type != DocumentType.invoice &&
-                                    document.type != DocumentType.jobCard &&
-                                    document.approvalState ==
-                                        ApprovalState.pending) ...[
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () =>
-                                          FlywheelsScope.of(
-                                            context,
-                                          ).decideDocument(
-                                            document.id,
-                                            ApprovalState.approved,
-                                          ),
-                                      child: const Text('Approve'),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
           ],
         ),
       ),
@@ -1943,68 +2268,6 @@ class _EmptyStateCard extends StatelessWidget {
             Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.carLabel});
-
-  final SupportMessage message;
-  final String? carLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final isOwner = message.sentByOwner;
-    return Align(
-      alignment: isOwner ? Alignment.centerLeft : Alignment.centerRight,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
-        constraints: const BoxConstraints(maxWidth: 310),
-        decoration: BoxDecoration(
-          color: isOwner ? AppPalette.white : AppPalette.red,
-          border: isOwner ? Border.all(color: AppPalette.border) : null,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              carLabel == null ? message.topic : '${message.topic} | $carLabel',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: isOwner ? AppPalette.black : AppPalette.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message.message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: isOwner ? AppPalette.black : AppPalette.white,
-              ),
-            ),
-            if (message.attachmentPath != null) ...[
-              const SizedBox(height: 8),
-              AppImage(
-                path: message.attachmentPath!,
-                width: 260,
-                height: 150,
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Text(
-              formatDateTime(message.createdAt),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: isOwner
-                    ? AppPalette.muted
-                    : AppPalette.white.withValues(alpha: 0.72),
-              ),
-            ),
           ],
         ),
       ),

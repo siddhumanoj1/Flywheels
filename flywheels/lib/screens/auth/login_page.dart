@@ -1,4 +1,5 @@
 import 'package:flywheels/app/app_scope.dart';
+import 'package:flywheels/controllers/app_controller.dart';
 import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flywheels/widgets/speedometer_loader.dart';
@@ -23,8 +24,37 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  bool get _isPhoneValid => _phoneController.text.trim().length >= 10;
+  String get _otpPhone {
+    var digits = _phoneController.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.startsWith('91') && digits.length == 12) {
+      digits = digits.substring(2);
+    }
+    if (digits.startsWith('0') && digits.length == 11) {
+      digits = digits.substring(1);
+    }
+    return digits;
+  }
+
+  bool get _isPhoneValid => _otpPhone.length == 10;
   bool get _isOtpValid => _otpController.text.trim().length == 6;
+
+  Future<void> _requestOtp(AppController controller) async {
+    if (controller.isSendingOtp || !_isPhoneValid) return;
+    await controller.requestOtp(_otpPhone);
+    if (!mounted) return;
+    setState(() => _otpRequested = true);
+  }
+
+  Future<void> _verifyOtp(AppController controller) async {
+    if (controller.isVerifyingOtp || !_isOtpValid) return;
+    final success = await controller.verifyOtp(_otpController.text.trim());
+    if (!mounted || success) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(controller.errorMessage ?? 'Verification failed.'),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,8 +89,8 @@ class _LoginPageState extends State<LoginPage> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Center(child: BrandLogo(size: 120)),
-                                const SizedBox(height: 20),
+                                const Center(child: BrandLogo(size: 100)),
+                                const SizedBox(height: 18),
                                 Text(
                                   'Phone Login',
                                   style: Theme.of(
@@ -72,10 +102,13 @@ class _LoginPageState extends State<LoginPage> {
                                   'Verify with OTP and we will open the right dashboard for customer or owner access automatically.',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 18),
                                 TextField(
                                   controller: _phoneController,
                                   keyboardType: TextInputType.phone,
+                                  textInputAction: TextInputAction.next,
+                                  onChanged: (_) => setState(() {}),
+                                  onSubmitted: (_) => _requestOtp(controller),
                                   decoration: const InputDecoration(
                                     labelText: 'Phone number',
                                     hintText: 'Enter mobile number',
@@ -87,6 +120,9 @@ class _LoginPageState extends State<LoginPage> {
                                   TextField(
                                     controller: _otpController,
                                     keyboardType: TextInputType.number,
+                                    textInputAction: TextInputAction.done,
+                                    onChanged: (_) => setState(() {}),
+                                    onSubmitted: (_) => _verifyOtp(controller),
                                     decoration: const InputDecoration(
                                       labelText: 'OTP',
                                       hintText: 'Enter 6-digit code',
@@ -96,31 +132,14 @@ class _LoginPageState extends State<LoginPage> {
                                 if (_otpRequested)
                                   SizedBox(
                                     width: double.infinity,
-                                    child: FilledButton(
+                                    child: FilledButton.icon(
                                       onPressed:
                                           controller.isVerifyingOtp ||
                                               !_isOtpValid
                                           ? null
-                                          : () async {
-                                              final success = await controller
-                                                  .verifyOtp(
-                                                    _otpController.text.trim(),
-                                                  );
-                                              if (!context.mounted || success) {
-                                                return;
-                                              }
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    controller.errorMessage ??
-                                                        'Verification failed.',
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                      child: Text(
+                                          : () => _verifyOtp(controller),
+                                      icon: const Icon(Icons.verified_rounded),
+                                      label: Text(
                                         controller.isVerifyingOtp
                                             ? 'Verifying...'
                                             : 'Verify OTP',
@@ -131,36 +150,29 @@ class _LoginPageState extends State<LoginPage> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: _otpRequested
-                                      ? OutlinedButton(
+                                      ? OutlinedButton.icon(
                                           onPressed:
                                               controller.isSendingOtp ||
                                                   !_isPhoneValid
                                               ? null
-                                              : () => controller.requestOtp(
-                                                  _phoneController.text.trim(),
-                                                ),
-                                          child: Text(
+                                              : () => _requestOtp(controller),
+                                          icon: const Icon(
+                                            Icons.refresh_rounded,
+                                          ),
+                                          label: Text(
                                             controller.isSendingOtp
                                                 ? 'Sending...'
                                                 : 'Resend OTP',
                                           ),
                                         )
-                                      : FilledButton(
+                                      : FilledButton.icon(
                                           onPressed:
                                               controller.isSendingOtp ||
                                                   !_isPhoneValid
                                               ? null
-                                              : () async {
-                                                  await controller.requestOtp(
-                                                    _phoneController.text
-                                                        .trim(),
-                                                  );
-                                                  if (!mounted) return;
-                                                  setState(
-                                                    () => _otpRequested = true,
-                                                  );
-                                                },
-                                          child: Text(
+                                              : () => _requestOtp(controller),
+                                          icon: const Icon(Icons.speed_rounded),
+                                          label: Text(
                                             controller.isSendingOtp
                                                 ? 'Sending...'
                                                 : 'Send OTP',
@@ -205,20 +217,13 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SpeedometerLogoLoader(size: 220, logoSize: 96),
-                      const SizedBox(height: 14),
+                      const SpeedometerLogoLoader(size: 190, logoSize: 82),
+                      const SizedBox(height: 12),
                       Text(
                         controller.isVerifyingOtp
-                            ? 'Verifying phone number...'
+                            ? 'Verifying number...'
                             : 'Sending OTP...',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontSize:
-                              ((Theme.of(
-                                    context,
-                                  ).textTheme.titleLarge?.fontSize) ??
-                                  22) *
-                              0.5,
-                        ),
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ],
                   ),
