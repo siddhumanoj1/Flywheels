@@ -5,7 +5,7 @@ import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flutter/material.dart';
 
 class SpeedometerLogoLoader extends StatefulWidget {
-  const SpeedometerLogoLoader({super.key, this.size = 220, this.logoSize = 96});
+  const SpeedometerLogoLoader({super.key, this.size = 220, this.logoSize = 106});
 
   final double size;
   final double logoSize;

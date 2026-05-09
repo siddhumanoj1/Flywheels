@@ -176,9 +176,15 @@ abstract final class DocumentBuilderService {
     throw const FormatException('Use add, remove, or update commands.');
   }
 
-  static String createDocumentNumber(DocumentType type) {
-    final stamp = DateTime.now().millisecondsSinceEpoch.toString();
-    return '${type.prefix}-${stamp.substring(stamp.length - 6)}';
+  static String createDocumentNumber(
+    DocumentType type, {
+    Iterable<ServiceDocument> existingDocuments = const [],
+  }) {
+    final highestNumber = existingDocuments
+        .map((document) => int.tryParse(document.title.trim()))
+        .whereType<int>()
+        .fold<int>(1999, (highest, value) => value > highest ? value : highest);
+    return (highestNumber + 1).toString();
   }
 
   static DocumentType _detectType(

@@ -58,13 +58,15 @@ abstract final class DemoSeed {
       pickupRequired: true,
       pickupState: PickupState.assigned,
       pickupAddress: 'Madhapur, Hyderabad',
+      pickupPersonName: 'Ravi Kumar',
+      pickupPersonPhone: '9000012345',
       locationAccessGranted: true,
     ),
     ServiceJob(
       id: 'job-2',
       userId: customerUser.id,
       carId: 'car-2',
-      status: JobStatus.completed,
+      status: JobStatus.onRoad,
       expectedCompletion: DateTime.now().subtract(const Duration(days: 8)),
       pickupTime: DateTime.now()
           .subtract(const Duration(days: 8))

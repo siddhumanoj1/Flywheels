@@ -6,13 +6,7 @@ extension UserRoleX on UserRole {
   String get label => this == UserRole.owner ? 'Owner' : 'Customer';
 }
 
-enum JobStatus {
-  received,
-  underInspection,
-  workInProgress,
-  completed,
-  readyForDelivery,
-}
+enum JobStatus { received, underInspection, workInProgress, completed, onRoad }
 
 extension JobStatusX on JobStatus {
   JobStatus get next {
@@ -24,9 +18,9 @@ extension JobStatusX on JobStatus {
       case JobStatus.workInProgress:
         return JobStatus.completed;
       case JobStatus.completed:
-        return JobStatus.readyForDelivery;
-      case JobStatus.readyForDelivery:
-        return JobStatus.readyForDelivery;
+        return JobStatus.onRoad;
+      case JobStatus.onRoad:
+        return JobStatus.onRoad;
     }
   }
 
@@ -40,8 +34,8 @@ extension JobStatusX on JobStatus {
         return 'Work in Progress';
       case JobStatus.completed:
         return 'Completed';
-      case JobStatus.readyForDelivery:
-        return 'Ready for Delivery';
+      case JobStatus.onRoad:
+        return 'On-Road';
     }
   }
 }
@@ -57,6 +51,96 @@ extension PickupStateX on PickupState {
         return 'Assigned';
       case PickupState.completed:
         return 'Completed';
+    }
+  }
+}
+
+enum CarWorkflowState {
+  registered,
+  pickupRequested,
+  pickupAssigned,
+  received,
+  underInspection,
+  workInProgress,
+  readyForDelivery,
+  deliveryRequested,
+  deliveryAssigned,
+  onRoad,
+}
+
+extension CarWorkflowStateX on CarWorkflowState {
+  String get label {
+    switch (this) {
+      case CarWorkflowState.registered:
+        return 'Registered';
+      case CarWorkflowState.pickupRequested:
+        return 'Pickup Requested';
+      case CarWorkflowState.pickupAssigned:
+        return 'Pickup Assigned';
+      case CarWorkflowState.received:
+        return 'Received';
+      case CarWorkflowState.underInspection:
+        return 'Under Inspection';
+      case CarWorkflowState.workInProgress:
+        return 'Work in Progress';
+      case CarWorkflowState.readyForDelivery:
+        return 'Ready for Delivery';
+      case CarWorkflowState.deliveryRequested:
+        return 'Delivery Requested';
+      case CarWorkflowState.deliveryAssigned:
+        return 'Delivery Assigned';
+      case CarWorkflowState.onRoad:
+        return 'On-Road';
+    }
+  }
+
+  bool get isTransit =>
+      this == CarWorkflowState.pickupRequested ||
+      this == CarWorkflowState.pickupAssigned ||
+      this == CarWorkflowState.deliveryRequested ||
+      this == CarWorkflowState.deliveryAssigned;
+
+  bool get isInGarage =>
+      this == CarWorkflowState.received ||
+      this == CarWorkflowState.underInspection ||
+      this == CarWorkflowState.workInProgress;
+
+  bool get isAvailable =>
+      this == CarWorkflowState.registered || this == CarWorkflowState.onRoad;
+
+  bool get needsOwnerAction =>
+      isTransit ||
+      this == CarWorkflowState.underInspection ||
+      this == CarWorkflowState.workInProgress ||
+      this == CarWorkflowState.readyForDelivery;
+}
+
+extension ServiceJobWorkflowX on ServiceJob {
+  CarWorkflowState get workflowState {
+    final isOpenTransit =
+        pickupRequired && pickupState != PickupState.completed;
+    if (status == JobStatus.completed && isOpenTransit) {
+      return pickupState == PickupState.assigned
+          ? CarWorkflowState.deliveryAssigned
+          : CarWorkflowState.deliveryRequested;
+    }
+    if (isOpenTransit) {
+      return pickupState == PickupState.assigned
+          ? CarWorkflowState.pickupAssigned
+          : CarWorkflowState.pickupRequested;
+    }
+
+    switch (status) {
+      case JobStatus.received:
+        return CarWorkflowState.received;
+      case JobStatus.underInspection:
+        return CarWorkflowState.underInspection;
+      case JobStatus.workInProgress:
+        return CarWorkflowState.workInProgress;
+      case JobStatus.completed:
+        return CarWorkflowState.readyForDelivery;
+      case JobStatus.onRoad:
+        return CarWorkflowState.onRoad;
     }
   }
 }
@@ -204,6 +288,8 @@ class ServiceJob {
     required this.pickupRequired,
     required this.pickupState,
     this.pickupAddress,
+    this.pickupPersonName,
+    this.pickupPersonPhone,
     this.locationAccessGranted = false,
   });
 
@@ -216,6 +302,8 @@ class ServiceJob {
   final bool pickupRequired;
   final PickupState pickupState;
   final String? pickupAddress;
+  final String? pickupPersonName;
+  final String? pickupPersonPhone;
   final bool locationAccessGranted;
 
   ServiceJob copyWith({
@@ -225,6 +313,8 @@ class ServiceJob {
     bool? pickupRequired,
     PickupState? pickupState,
     String? pickupAddress,
+    String? pickupPersonName,
+    String? pickupPersonPhone,
     bool? locationAccessGranted,
   }) {
     return ServiceJob(
@@ -237,6 +327,8 @@ class ServiceJob {
       pickupRequired: pickupRequired ?? this.pickupRequired,
       pickupState: pickupState ?? this.pickupState,
       pickupAddress: pickupAddress ?? this.pickupAddress,
+      pickupPersonName: pickupPersonName ?? this.pickupPersonName,
+      pickupPersonPhone: pickupPersonPhone ?? this.pickupPersonPhone,
       locationAccessGranted:
           locationAccessGranted ?? this.locationAccessGranted,
     );

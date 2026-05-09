@@ -89,7 +89,7 @@ class _LoginPageState extends State<LoginPage> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Center(child: BrandLogo(size: 100)),
+                                const Center(child: BrandLogo(size: 110)),
                                 const SizedBox(height: 18),
                                 Text(
                                   'Phone Login',
@@ -217,7 +217,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SpeedometerLogoLoader(size: 190, logoSize: 82),
+                      const SpeedometerLogoLoader(size: 190, logoSize: 90),
                       const SizedBox(height: 12),
                       Text(
                         controller.isVerifyingOtp

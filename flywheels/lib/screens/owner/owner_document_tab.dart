@@ -6,7 +6,7 @@ import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/document_builder_service.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
-import 'package:flywheels/widgets/brand_logo.dart';
+import 'package:flywheels/widgets/document_template_preview.dart';
 import 'package:flutter/material.dart';
 
 class OwnerDocumentTab extends StatefulWidget {
@@ -19,8 +19,8 @@ class OwnerDocumentTab extends StatefulWidget {
 }
 
 class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
+  final _scrollController = ScrollController();
   final _rawTextController = TextEditingController();
-  final _quickEditController = TextEditingController();
   final _documentNumberController = TextEditingController();
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
@@ -69,8 +69,8 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _rawTextController.dispose();
-    _quickEditController.dispose();
     _documentNumberController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
@@ -89,9 +89,16 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     final draft = DocumentBuilderService.buildEmptyDraft(
       type: _selectedType,
       car: selectedCar,
-    );
+    ).copyWith(documentNumber: _nextDocumentNumber(_selectedType));
     _applyDraft(draft);
     _hydrateFromSelectedCar();
+  }
+
+  String _nextDocumentNumber(DocumentType type) {
+    return DocumentBuilderService.createDocumentNumber(
+      type,
+      existingDocuments: FlywheelsScope.of(context).documents,
+    );
   }
 
   void _applyDraft(DocumentDraft draft) {
@@ -129,6 +136,30 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       _selectedCustomerId = customer?.id ?? _selectedCustomerId;
     });
     _seedRawTemplate();
+  }
+
+  void _hydrateFromSelectedCustomer() {
+    final controller = FlywheelsScope.of(context);
+    final customer = _selectedCustomerId == null
+        ? null
+        : controller.userById(_selectedCustomerId!);
+    if (customer == null) return;
+    setState(() {
+      _customerNameController.text = customer.name;
+      _customerPhoneController.text = customer.phone;
+    });
+    _seedRawTemplate();
+  }
+
+  GarageUser? _selectedCustomer(AppController controller) {
+    final selectedCar = controller.cars
+        .where((car) => car.id == _selectedCarId)
+        .firstOrNull;
+    if (selectedCar != null) {
+      return controller.customerForCar(selectedCar.id);
+    }
+    if (_selectedCustomerId == null) return null;
+    return controller.userById(_selectedCustomerId!);
   }
 
   void _seedRawTemplate({bool force = false}) {
@@ -192,9 +223,15 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       );
       _applyDraft(
         draft.copyWith(
+          documentNumber: _documentNumberController.text.trim().isEmpty
+              ? _nextDocumentNumber(draft.type)
+              : _documentNumberController.text.trim(),
           customerName: draft.customerName.isEmpty
               ? _customerNameController.text.trim()
               : draft.customerName,
+          customerPhone: draft.customerPhone.isEmpty
+              ? _customerPhoneController.text.trim()
+              : draft.customerPhone,
           vehicleNumber: draft.vehicleNumber.isEmpty
               ? _vehicleNumberController.text.trim()
               : draft.vehicleNumber,
@@ -204,20 +241,6 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         ),
       );
       _showMessage('${draft.type.label} parsed successfully.');
-    } on FormatException catch (error) {
-      _showMessage(error.message);
-    }
-  }
-
-  void _applyQuickEdit() {
-    try {
-      final draft = DocumentBuilderService.applyQuickCommand(
-        _currentDraft(),
-        _quickEditController.text,
-      );
-      _applyDraft(draft);
-      _quickEditController.clear();
-      _showMessage('Document updated.');
     } on FormatException catch (error) {
       _showMessage(error.message);
     }
@@ -235,17 +258,45 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         ),
       ];
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
-  void _updateItem(int index, DocumentLineItem item) {
+  IconData _documentTypeIcon(DocumentType type) {
+    switch (type) {
+      case DocumentType.quotation:
+        return Icons.request_quote_rounded;
+      case DocumentType.estimation:
+        return Icons.calculate_rounded;
+      case DocumentType.invoice:
+        return Icons.receipt_long_rounded;
+      case DocumentType.jobCard:
+        return Icons.assignment_rounded;
+    }
+  }
+
+  void _updateItem(int index, DocumentLineItem item, {bool rebuild = false}) {
+    if (index < 0 || index >= _items.length) {
+      return;
+    }
     final items = List<DocumentLineItem>.from(_items);
     final shouldCalculate = item.quantity > 0 && item.unitPrice > 0;
     items[index] = item.copyWith(
       total: shouldCalculate ? item.quantity * item.unitPrice : item.total,
     );
-    setState(() {
+    if (rebuild) {
+      setState(() {
+        _items = items;
+      });
+    } else {
       _items = items;
-    });
+    }
   }
 
   void _removeItem(int index) {
@@ -301,8 +352,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         controller.sendDocumentInChat(document);
       }
     }
-    _documentNumberController.text =
-        DocumentBuilderService.createDocumentNumber(_selectedType);
+    setState(() {
+      _documentNumberController.text = _nextDocumentNumber(_selectedType);
+    });
     _showMessage(
       sendToChat
           ? '${_selectedType.label} sent and attached to chat.'
@@ -338,43 +390,112 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     }
   }
 
+  bool _validateDraftForOutput() {
+    if (_documentNumberController.text.trim().isEmpty) {
+      _showMessage('Add a document number before creating the document.');
+      return false;
+    }
+    if (_customerNameController.text.trim().isEmpty ||
+        _vehicleNumberController.text.trim().isEmpty ||
+        _carModelController.text.trim().isEmpty) {
+      _showMessage('Complete customer, vehicle, and model details first.');
+      return false;
+    }
+    if (_items.isEmpty) {
+      _showMessage('Add at least one line item before creating a document.');
+      return false;
+    }
+    return true;
+  }
+
+  void _createDraftPreview() {
+    if (!_validateDraftForOutput()) return;
+    _showDraftPreviewDialog();
+  }
+
+  Future<void> _downloadDraftPdf() async {
+    if (!_validateDraftForOutput()) return;
+    _showMessage('Preparing PDF download...');
+    try {
+      final export = await DocumentPdfExportService.exportDraft(
+        draft: _currentDraft(),
+      );
+      if (!mounted) return;
+      _showMessage('${_selectedType.label} PDF saved to ${export.filePath}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF download failed: $error');
+    }
+  }
+
   Future<void> _showDraftPreviewDialog() async {
-    final selectedCar = FlywheelsScope.of(
-      context,
-    ).cars.where((car) => car.id == _selectedCarId).firstOrNull;
+    if (!_validateDraftForOutput()) return;
     await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${_selectedType.label} preview'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: _DraftPreviewContent(
-              documentNumber: _documentNumberController.text,
+      builder: (context) {
+        final previewHeight = MediaQuery.sizeOf(context).height * 0.68;
+        return AlertDialog(
+          titlePadding: const EdgeInsets.fromLTRB(24, 18, 8, 0),
+          title: Row(
+            children: [
+              Expanded(child: Text('${_selectedType.label} preview')),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 620,
+            height: previewHeight.clamp(360, 720),
+            child: DocumentTemplatePreview(
               type: _selectedType,
-              vehicleNumber:
-                  selectedCar?.carNumber ?? _vehicleNumberController.text,
-              carModel: _carModelController.text,
+              documentNumber: _documentNumberController.text,
+              date: DateTime.now(),
               customerName: _customerNameController.text,
+              vehicleNumber: _vehicleNumberController.text,
+              carModel: _carModelController.text,
               items: _items,
-              total: _items.fold<double>(0, (sum, item) => sum + item.total),
+              padding: const EdgeInsets.all(24),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _confirmSendDocument();
-            },
-            child: const Text('Send'),
-          ),
-        ],
-      ),
+          actions: [
+            IconButton.outlined(
+              tooltip: 'Download PDF',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _downloadDraftPdf();
+              },
+              icon: const Icon(Icons.download_rounded),
+            ),
+            IconButton.outlined(
+              tooltip: 'WhatsApp',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _shareDraftOnWhatsapp();
+              },
+              icon: const Icon(Icons.ios_share_rounded),
+            ),
+            IconButton.outlined(
+              tooltip: 'Send to chat',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _confirmSendDocument(sendToChat: true);
+              },
+              icon: const Icon(Icons.chat_bubble_rounded),
+            ),
+            IconButton.filled(
+              tooltip: 'Save document',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _confirmSendDocument();
+              },
+              icon: const Icon(Icons.library_add_rounded),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -384,23 +505,32 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       _showMessage('Add a customer phone number first.');
       return;
     }
-    final message =
-        'FLYWHEELS AUTO\n'
-        '${_selectedType.label}: ${_documentNumberController.text.trim()}\n'
-        'Vehicle: ${_vehicleNumberController.text.trim()}\n'
-        'Model: ${_carModelController.text.trim()}\n'
-        'Customer: ${_customerNameController.text.trim()}\n'
-        'Total: ${formatCurrency(_items.fold<double>(0, (sum, item) => sum + item.total))}';
-    final sent = await WhatsappShareService.share(
-      phone: phone,
-      message: message,
-    );
-    if (!mounted) return;
-    _showMessage(
-      sent
-          ? '${_selectedType.label} shared on WhatsApp.'
-          : 'WhatsApp could not be opened.',
-    );
+    if (!_validateDraftForOutput()) return;
+    _showMessage('Preparing PDF for sharing...');
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    try {
+      final export = await DocumentPdfExportService.exportDraft(
+        draft: _currentDraft(),
+      );
+      final sent = await WhatsappShareService.sharePdf(
+        filePath: export.filePath,
+        fileName: export.fileName,
+        message:
+            'FLYWHEELS AUTO\n'
+            '${_selectedType.label}: ${_documentNumberController.text.trim()}\n'
+            'Vehicle: ${_vehicleNumberController.text.trim()}\n'
+            'Total: ${formatCurrency(_items.fold<double>(0, (sum, item) => sum + item.total))}',
+      );
+      if (!mounted) return;
+      _showMessage(
+        sent
+            ? '${_selectedType.label} PDF ready for sharing.'
+            : 'PDF saved. Share sheet could not be opened.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF share failed: $error');
+    }
   }
 
   Future<void> _shareDocumentOnWhatsapp(ServiceDocument document) async {
@@ -413,22 +543,29 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       _showMessage('No customer phone is available for this document.');
       return;
     }
-    final export = await DocumentPdfExportService.exportDocument(
-      document: document,
-      car: car,
-      customer: customer,
-    );
-    final sent = await WhatsappShareService.sharePdf(
-      filePath: export.filePath,
-      fileName: export.fileName,
-      message: controller.buildDocumentWhatsappMessage(document),
-    );
-    if (!mounted) return;
-    _showMessage(
-      sent
-          ? 'PDF ready for WhatsApp sharing.'
-          : 'PDF saved. WhatsApp share sheet could not be opened.',
-    );
+    _showMessage('Preparing PDF for sharing...');
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    try {
+      final export = await DocumentPdfExportService.exportDocument(
+        document: document,
+        car: car,
+        customer: customer,
+      );
+      final sent = await WhatsappShareService.sharePdf(
+        filePath: export.filePath,
+        fileName: export.fileName,
+        message: controller.buildDocumentWhatsappMessage(document),
+      );
+      if (!mounted) return;
+      _showMessage(
+        sent
+            ? 'PDF ready for sharing.'
+            : 'PDF saved. Share sheet could not be opened.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF share failed: $error');
+    }
   }
 
   Future<void> _downloadDocumentPdf(ServiceDocument document) async {
@@ -437,13 +574,19 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         .where((item) => item.id == document.carId)
         .firstOrNull;
     final customer = car == null ? null : controller.customerForCar(car.id);
-    final export = await DocumentPdfExportService.exportDocument(
-      document: document,
-      car: car,
-      customer: customer,
-    );
-    if (!mounted) return;
-    _showMessage('${document.title} PDF saved to ${export.filePath}');
+    _showMessage('Preparing PDF download...');
+    try {
+      final export = await DocumentPdfExportService.exportDocument(
+        document: document,
+        car: car,
+        customer: customer,
+      );
+      if (!mounted) return;
+      _showMessage('${document.title} PDF saved to ${export.filePath}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF download failed: $error');
+    }
   }
 
   Future<void> _sharePaymentReminder(ServiceDocument document) async {
@@ -473,37 +616,65 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     final car = controller.cars
         .where((item) => item.id == document.carId)
         .firstOrNull;
+    final customer = car == null ? null : controller.customerForCar(car.id);
     await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${document.type.label} preview'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: _ServiceDocumentPreviewContent(document: document, car: car),
+      builder: (context) {
+        final previewHeight = MediaQuery.sizeOf(context).height * 0.68;
+        return AlertDialog(
+          titlePadding: const EdgeInsets.fromLTRB(24, 18, 8, 0),
+          title: Row(
+            children: [
+              Expanded(child: Text('${document.type.label} ${document.title}')),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+          content: SizedBox(
+            width: 620,
+            height: previewHeight.clamp(360, 720),
+            child: DocumentTemplatePreview(
+              type: document.type,
+              documentNumber: document.title,
+              date: document.createdAt,
+              customerName: customer?.name ?? 'Customer',
+              vehicleNumber: car?.carNumber ?? 'Vehicle',
+              carModel: car?.model ?? 'N/A',
+              items: document.items,
+              padding: const EdgeInsets.all(24),
+            ),
           ),
-          OutlinedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _downloadDocumentPdf(document);
-            },
-            child: const Text('Download PDF'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _shareDocumentOnWhatsapp(document);
-            },
-            child: const Text('WhatsApp'),
-          ),
-        ],
-      ),
+          actions: [
+            IconButton.outlined(
+              tooltip: 'Download PDF',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _downloadDocumentPdf(document);
+              },
+              icon: const Icon(Icons.download_rounded),
+            ),
+            IconButton.outlined(
+              tooltip: 'Send to chat',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _sendDocumentToChat(document);
+              },
+              icon: const Icon(Icons.chat_bubble_rounded),
+            ),
+            IconButton.filled(
+              tooltip: 'WhatsApp',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _shareDocumentOnWhatsapp(document);
+              },
+              icon: const Icon(Icons.ios_share_rounded),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -513,14 +684,43 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         .where((item) => item.id == document.carId)
         .firstOrNull;
     final customer = car == null ? null : controller.customerForCar(car.id);
-    final export = await DocumentPdfExportService.exportDocument(
-      document: document,
-      car: car,
-      customer: customer,
+    _showMessage('Preparing PDF for chat...');
+    try {
+      final export = await DocumentPdfExportService.exportDocument(
+        document: document,
+        car: car,
+        customer: customer,
+      );
+      controller.sendDocumentInChat(document, attachmentPath: export.filePath);
+      if (!mounted) return;
+      _showMessage('${document.title} PDF sent in customer chat.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF chat send failed: $error');
+    }
+  }
+
+  Future<void> _confirmDeleteDocument(ServiceDocument document) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${document.title}?'),
+        content: const Text('Are you sure you want to delete this document?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
     );
-    controller.sendDocumentInChat(document, attachmentPath: export.filePath);
-    if (!mounted) return;
-    _showMessage('${document.title} PDF sent in customer chat.');
+    if (confirmed != true || !mounted) return;
+    FlywheelsScope.of(context).deleteDocument(document.id);
+    _showMessage('${document.title} deleted.');
   }
 
   Widget _buildDocumentLibrary(
@@ -621,6 +821,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
             onPaymentReminder: () => _sharePaymentReminder(document),
             onSendToChat: () => _sendDocumentToChat(document),
             onMarkPaid: () => controller.markDocumentPaid(document.id),
+            onDelete: () => _confirmDeleteDocument(document),
           );
         }),
       ],
@@ -636,9 +837,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     final customerCars = _selectedCustomerId == null
         ? controller.cars
         : controller.carsForCustomer(_selectedCustomerId!);
-    final selectedCustomer = selectedCar == null
-        ? null
-        : controller.customerForCar(selectedCar.id);
+    final selectedCustomer = _selectedCustomer(controller);
     final documents = _selectedCarId == null
         ? controller.documents
         : controller.documentsForCar(_selectedCarId!);
@@ -652,6 +851,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
 
     return ListView(
       key: const PageStorageKey('owner-document-tab'),
+      controller: _scrollController,
       padding: const EdgeInsets.all(20),
       children: [
         _buildModeSwitch(),
@@ -666,69 +866,73 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   'Document studio',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Built from the invoice, quotation, and estimation maker flow: parse raw notes, edit line items, quick-edit with commands, preview, and send to a customer car.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
                 const SizedBox(height: 16),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment<bool>(
-                      value: true,
-                      label: Text('Existing customer'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _StudioChoiceCard(
+                        icon: Icons.person_search_rounded,
+                        title: 'Existing customer',
+                        selected: _useExistingCustomer,
+                        onTap: () {
+                          setState(() => _useExistingCustomer = true);
+                          _hydrateFromSelectedCustomer();
+                        },
+                      ),
                     ),
-                    ButtonSegment<bool>(
-                      value: false,
-                      label: Text('New customer'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _StudioChoiceCard(
+                        icon: Icons.person_add_alt_1_rounded,
+                        title: 'New customer',
+                        selected: !_useExistingCustomer,
+                        onTap: () {
+                          setState(() {
+                            _useExistingCustomer = false;
+                            _selectedCustomerId = null;
+                            _selectedCarId = null;
+                            _customerNameController.clear();
+                            _customerPhoneController.clear();
+                            _vehicleNumberController.clear();
+                            _carModelController.clear();
+                          });
+                        },
+                      ),
                     ),
                   ],
-                  selected: {_useExistingCustomer},
-                  onSelectionChanged: (selection) {
-                    setState(() {
-                      _useExistingCustomer = selection.first;
-                      if (!_useExistingCustomer) {
-                        _selectedCarId = null;
-                      }
-                    });
-                  },
                 ),
                 const SizedBox(height: 16),
-                SegmentedButton<DocumentType>(
-                  style: ButtonStyle(
-                    foregroundColor: WidgetStateProperty.resolveWith((states) {
-                      if (states.contains(WidgetState.selected)) {
-                        return AppPalette.white;
-                      }
-                      return AppPalette.black;
-                    }),
-                    backgroundColor: WidgetStateProperty.resolveWith((states) {
-                      if (states.contains(WidgetState.selected)) {
-                        return AppPalette.red;
-                      }
-                      return AppPalette.soft;
-                    }),
-                    side: const WidgetStatePropertyAll(
-                      BorderSide(color: AppPalette.border),
-                    ),
-                  ),
-                  segments: DocumentType.values
-                      .map(
-                        (type) => ButtonSegment<DocumentType>(
-                          value: type,
-                          label: Text(type.label),
-                        ),
-                      )
-                      .toList(),
-                  selected: {_selectedType},
-                  onSelectionChanged: (selection) {
-                    final nextType = selection.first;
-                    setState(() {
-                      _selectedType = nextType;
-                      _documentNumberController.text =
-                          DocumentBuilderService.createDocumentNumber(nextType);
-                    });
-                  },
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: DocumentType.values.map((type) {
+                    return ChoiceChip(
+                      avatar: Icon(
+                        _documentTypeIcon(type),
+                        size: 18,
+                        color: _selectedType == type
+                            ? AppPalette.white
+                            : AppPalette.black,
+                      ),
+                      label: Text(type.label),
+                      selected: _selectedType == type,
+                      selectedColor: AppPalette.red,
+                      labelStyle: TextStyle(
+                        color: _selectedType == type
+                            ? AppPalette.white
+                            : AppPalette.black,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      onSelected: (_) {
+                        setState(() {
+                          _selectedType = type;
+                          _documentNumberController.text = _nextDocumentNumber(
+                            type,
+                          );
+                        });
+                      },
+                    );
+                  }).toList(),
                 ),
                 const SizedBox(height: 16),
                 if (_useExistingCustomer) ...[
@@ -750,6 +954,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                         _selectedCustomerId = value;
                         _selectedCarId = null;
                       });
+                      _hydrateFromSelectedCustomer();
                     },
                   ),
                   const SizedBox(height: 12),
@@ -892,6 +1097,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                     Expanded(
                       child: TextField(
                         controller: _documentNumberController,
+                        keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
                           labelText: 'Document number',
                         ),
@@ -1007,9 +1213,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   (entry) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _LineItemEditor(
-                      key: ValueKey(
-                        '${entry.key}-${entry.value.description}-${entry.value.total}',
-                      ),
+                      key: ValueKey('line-item-${entry.key}'),
                       index: entry.key,
                       item: entry.value,
                       onChanged: (item) => _updateItem(entry.key, item),
@@ -1028,71 +1232,10 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Quick edit',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Examples: add 2 wiper blades for 500 each, remove engine oil, update airfilter to 950',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _quickEditController,
-                  decoration: const InputDecoration(labelText: 'Command'),
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton(
-                  onPressed: _applyQuickEdit,
-                  child: const Text('Apply change'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Document actions',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Preview opens in a dialog so the studio stays focused on editing.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _showDraftPreviewDialog,
-                      icon: const Icon(Icons.visibility_outlined),
-                      label: const Text('Preview'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _shareDraftOnWhatsapp,
-                      icon: const Icon(Icons.ios_share_rounded),
-                      label: const Text('WhatsApp'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: () => _sendDocument(),
-                      icon: const Icon(Icons.library_add_rounded),
-                      label: Text('Send ${_selectedType.label}'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: () => _confirmSendDocument(sendToChat: true),
-                      icon: const Icon(Icons.chat_bubble_rounded),
-                      label: const Text('Send to chat'),
-                    ),
-                  ],
+                FilledButton.icon(
+                  onPressed: _createDraftPreview,
+                  icon: const Icon(Icons.description_rounded),
+                  label: const Text('Create document'),
                 ),
               ],
             ),
@@ -1137,6 +1280,52 @@ class _AutoFillLine extends StatelessWidget {
   }
 }
 
+class _StudioChoiceCard extends StatelessWidget {
+  const _StudioChoiceCard({
+    required this.icon,
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected ? AppPalette.red : AppPalette.soft,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? AppPalette.red : AppPalette.border,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: selected ? AppPalette.white : AppPalette.black),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: selected ? AppPalette.white : AppPalette.black,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LineItemEditor extends StatefulWidget {
   const _LineItemEditor({
     super.key,
@@ -1160,6 +1349,10 @@ class _LineItemEditorState extends State<_LineItemEditor> {
   late final TextEditingController _quantityController;
   late final TextEditingController _priceController;
   late final TextEditingController _totalController;
+  late final FocusNode _descriptionFocusNode;
+  late final FocusNode _quantityFocusNode;
+  late final FocusNode _priceFocusNode;
+  late final FocusNode _totalFocusNode;
 
   @override
   void initState() {
@@ -1178,25 +1371,26 @@ class _LineItemEditorState extends State<_LineItemEditor> {
     _totalController = TextEditingController(
       text: widget.item.total == 0 ? '' : widget.item.total.toStringAsFixed(0),
     );
+    _descriptionFocusNode = FocusNode();
+    _quantityFocusNode = FocusNode();
+    _priceFocusNode = FocusNode();
+    _totalFocusNode = FocusNode();
   }
 
   @override
   void didUpdateWidget(covariant _LineItemEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.item != widget.item) {
-      _descriptionController.text = widget.item.description;
-      _quantityController.text = widget.item.quantity.toString();
-      _priceController.text = widget.item.unitPrice == 0
-          ? ''
-          : widget.item.unitPrice.toStringAsFixed(0);
-      _totalController.text = widget.item.total == 0
-          ? ''
-          : widget.item.total.toStringAsFixed(0);
+    if (oldWidget.item != widget.item && !_hasFocus) {
+      _syncControllers(widget.item);
     }
   }
 
   @override
   void dispose() {
+    _descriptionFocusNode.dispose();
+    _quantityFocusNode.dispose();
+    _priceFocusNode.dispose();
+    _totalFocusNode.dispose();
     _descriptionController.dispose();
     _quantityController.dispose();
     _priceController.dispose();
@@ -1204,10 +1398,40 @@ class _LineItemEditorState extends State<_LineItemEditor> {
     super.dispose();
   }
 
-  void _emit() {
+  bool get _hasFocus =>
+      _descriptionFocusNode.hasFocus ||
+      _quantityFocusNode.hasFocus ||
+      _priceFocusNode.hasFocus ||
+      _totalFocusNode.hasFocus;
+
+  void _syncControllers(DocumentLineItem item) {
+    _descriptionController.text = item.description;
+    _quantityController.text = item.quantity.toString();
+    _priceController.text = item.unitPrice == 0
+        ? ''
+        : item.unitPrice.toStringAsFixed(0);
+    _totalController.text = item.total == 0
+        ? ''
+        : item.total.toStringAsFixed(0);
+  }
+
+  void _emit({bool refreshCalculatedTotal = false}) {
     final quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
     final unitPrice = double.tryParse(_priceController.text.trim()) ?? 0;
-    final total = double.tryParse(_totalController.text.trim()) ?? 0;
+    final calculatedTotal = quantity > 0 && unitPrice > 0
+        ? quantity * unitPrice
+        : 0.0;
+    var total = double.tryParse(_totalController.text.trim()) ?? 0;
+    if (refreshCalculatedTotal && calculatedTotal > 0) {
+      total = calculatedTotal;
+      final nextTotal = total.toStringAsFixed(0);
+      if (_totalController.text != nextTotal) {
+        _totalController.value = TextEditingValue(
+          text: nextTotal,
+          selection: TextSelection.collapsed(offset: nextTotal.length),
+        );
+      }
+    }
     widget.onChanged(
       DocumentLineItem(
         description: _descriptionController.text.trim(),
@@ -1244,8 +1468,10 @@ class _LineItemEditorState extends State<_LineItemEditor> {
           ),
           TextField(
             controller: _descriptionController,
+            focusNode: _descriptionFocusNode,
             decoration: const InputDecoration(labelText: 'Description'),
             onChanged: (_) => _emit(),
+            onEditingComplete: _emit,
           ),
           const SizedBox(height: 10),
           Row(
@@ -1253,161 +1479,43 @@ class _LineItemEditorState extends State<_LineItemEditor> {
               Expanded(
                 child: TextField(
                   controller: _priceController,
+                  focusNode: _priceFocusNode,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   decoration: const InputDecoration(labelText: 'Unit price'),
-                  onChanged: (_) => _emit(),
+                  onChanged: (_) => _emit(refreshCalculatedTotal: true),
+                  onEditingComplete: () => _emit(refreshCalculatedTotal: true),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   controller: _quantityController,
+                  focusNode: _quantityFocusNode,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(labelText: 'Quantity'),
-                  onChanged: (_) => _emit(),
+                  onChanged: (_) => _emit(refreshCalculatedTotal: true),
+                  onEditingComplete: () => _emit(refreshCalculatedTotal: true),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   controller: _totalController,
+                  focusNode: _totalFocusNode,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   decoration: const InputDecoration(labelText: 'Total'),
                   onChanged: (_) => _emit(),
+                  onEditingComplete: _emit,
                 ),
               ),
             ],
           ),
         ],
       ),
-    );
-  }
-}
-
-class _DraftPreviewContent extends StatelessWidget {
-  const _DraftPreviewContent({
-    required this.documentNumber,
-    required this.type,
-    required this.vehicleNumber,
-    required this.carModel,
-    required this.customerName,
-    required this.items,
-    required this.total,
-  });
-
-  final String documentNumber;
-  final DocumentType type;
-  final String vehicleNumber;
-  final String carModel;
-  final String customerName;
-  final List<DocumentLineItem> items;
-  final double total;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            BrandLogo(size: 42),
-            SizedBox(width: 12),
-            Text('FLYWHEELS AUTO'),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(
-          documentNumber.isEmpty ? 'Draft number pending' : documentNumber,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 6),
-        Text(vehicleNumber, style: Theme.of(context).textTheme.bodyMedium),
-        Text(carModel, style: Theme.of(context).textTheme.bodyMedium),
-        Text(customerName, style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(height: 16),
-        ...items.asMap().entries.map(
-          (entry) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text('${entry.key + 1}. ${entry.value.description}'),
-                ),
-                Text(
-                  '${entry.value.quantity} x ${formatCurrency(entry.value.unitPrice)}',
-                ),
-                const SizedBox(width: 12),
-                Text(formatCurrency(entry.value.total)),
-              ],
-            ),
-          ),
-        ),
-        const Divider(height: 28),
-        Row(
-          children: [
-            Text(type.label, style: Theme.of(context).textTheme.titleLarge),
-            const Spacer(),
-            Text(
-              formatCurrency(total),
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _ServiceDocumentPreviewContent extends StatelessWidget {
-  const _ServiceDocumentPreviewContent({
-    required this.document,
-    required this.car,
-  });
-
-  final ServiceDocument document;
-  final CarProfile? car;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            BrandLogo(size: 42),
-            SizedBox(width: 12),
-            Text('FLYWHEELS AUTO'),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(document.title, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 6),
-        Text(
-          car?.carNumber ?? 'Vehicle',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        Text(
-          car?.model ?? 'Model',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        Text(
-          '${document.type.label} | ${formatCurrency(document.total)}',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            Chip(label: Text('Approval: ${document.approvalState.name}')),
-            Chip(label: Text('Payment: ${document.paymentState.name}')),
-          ],
-        ),
-      ],
     );
   }
 }
@@ -1423,6 +1531,7 @@ class _OwnerDocumentLibraryTile extends StatelessWidget {
     required this.onPaymentReminder,
     required this.onSendToChat,
     required this.onMarkPaid,
+    required this.onDelete,
   });
 
   final ServiceDocument document;
@@ -1434,6 +1543,7 @@ class _OwnerDocumentLibraryTile extends StatelessWidget {
   final VoidCallback onPaymentReminder;
   final VoidCallback onSendToChat;
   final VoidCallback onMarkPaid;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1466,50 +1576,52 @@ class _OwnerDocumentLibraryTile extends StatelessWidget {
             '${document.type.label} | ${formatCurrency(document.total)}',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              Chip(label: Text('Approval: ${document.approvalState.name}')),
-              Chip(label: Text('Payment: ${document.paymentState.name}')),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              OutlinedButton(
+              IconButton.outlined(
+                tooltip: 'Preview PDF',
                 onPressed: onPreview,
-                child: const Text('Preview'),
+                icon: const Icon(Icons.visibility_rounded),
               ),
-              OutlinedButton(
+              IconButton.outlined(
+                tooltip: 'Download PDF',
                 onPressed: onDownload,
-                child: const Text('Download PDF'),
+                icon: const Icon(Icons.download_rounded),
               ),
-              OutlinedButton(
+              IconButton.outlined(
+                tooltip: 'WhatsApp',
                 onPressed: onWhatsapp,
-                child: const Text('WhatsApp'),
+                icon: const Icon(Icons.ios_share_rounded),
               ),
-              OutlinedButton(
+              IconButton.outlined(
+                tooltip: 'Send to chat',
                 onPressed: onSendToChat,
-                child: const Text('Send to chat'),
+                icon: const Icon(Icons.chat_bubble_rounded),
               ),
               if (document.type == DocumentType.invoice &&
                   document.paymentState != PaymentState.paid)
-                OutlinedButton(
+                IconButton.outlined(
+                  tooltip: 'Payment reminder',
                   onPressed: onPaymentReminder,
-                  child: const Text('Payment reminder'),
+                  icon: const Icon(Icons.notifications_active_rounded),
                 ),
+              IconButton.outlined(
+                tooltip: 'Delete document',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
             ],
           ),
           if (document.type == DocumentType.invoice &&
               document.paymentState != PaymentState.paid) ...[
             const SizedBox(height: 12),
-            OutlinedButton(
+            IconButton.outlined(
+              tooltip: 'Mark as paid',
               onPressed: onMarkPaid,
-              child: const Text('Mark as paid'),
+              icon: const Icon(Icons.price_check_rounded),
             ),
           ],
         ],

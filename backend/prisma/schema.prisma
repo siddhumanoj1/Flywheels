@@ -17,7 +17,7 @@ enum JobStatus {
   UNDER_INSPECTION
   WORK_IN_PROGRESS
   COMPLETED
-  READY_FOR_DELIVERY
+  ON_ROAD
 }
 
 enum DocumentType {

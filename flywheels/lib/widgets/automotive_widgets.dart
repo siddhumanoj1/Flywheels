@@ -166,91 +166,192 @@ class HorizontalServiceTimeline extends StatelessWidget {
     const statuses = JobStatus.values;
     final activeIndex = statuses.indexOf(status);
 
-    return SizedBox(
-      height: compact ? 50 : 86,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: List.generate(statuses.length, (index) {
-          final isReached = index <= activeIndex;
-          final isActive = index == activeIndex;
-          return Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 3,
-                        color: index == 0
-                            ? Colors.transparent
-                            : isReached
-                            ? AppPalette.red
-                            : AppPalette.border,
-                      ),
-                    ),
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      width: compact ? 16 : 22,
-                      height: compact ? 16 : 22,
-                      decoration: BoxDecoration(
-                        color: isReached ? AppPalette.red : AppPalette.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isReached ? AppPalette.red : AppPalette.border,
-                          width: 2,
-                        ),
-                        boxShadow: isActive
-                            ? [
-                                BoxShadow(
-                                  color: AppPalette.red.withValues(alpha: 0.28),
-                                  blurRadius: 12,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: isReached && !compact
-                          ? index == statuses.length - 1
-                                ? const _FinishFlagIcon(size: 13)
-                                : const Icon(
-                                    Icons.check_rounded,
-                                    color: AppPalette.white,
-                                    size: 13,
-                                  )
-                          : null,
-                    ),
-                    Expanded(
-                      child: Container(
-                        height: 3,
-                        color: index == statuses.length - 1
-                            ? Colors.transparent
-                            : index < activeIndex
-                            ? AppPalette.red
-                            : AppPalette.border,
-                      ),
-                    ),
-                  ],
-                ),
-                if (!compact) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    statuses[index].label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: isActive ? AppPalette.red : AppPalette.black,
-                      fontWeight: isReached ? FontWeight.w900 : FontWeight.w600,
-                      letterSpacing: 0,
-                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = compact ? 54.0 : 96.0;
+        final carSize = compact ? 24.0 : 32.0;
+        final nodeSize = compact ? 14.0 : 22.0;
+        final trackTop = compact ? 28.0 : 36.0;
+        final labelTop = trackTop + 16;
+        final usableTrack = (width - nodeSize).clamp(0.0, double.infinity);
+        final progress = statuses.length <= 1
+            ? 0.0
+            : activeIndex / (statuses.length - 1);
+        final carLeft = (progress * (width - carSize)).clamp(
+          0.0,
+          (width - carSize).clamp(0.0, double.infinity),
+        );
+
+        return SizedBox(
+          height: height,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: nodeSize / 2,
+                right: nodeSize / 2,
+                top: trackTop + nodeSize / 2 - 2,
+                child: Container(
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppPalette.border,
+                    borderRadius: BorderRadius.circular(99),
                   ),
-                ],
-              ],
-            ),
-          );
-        }),
+                ),
+              ),
+              Positioned(
+                left: nodeSize / 2,
+                top: trackTop + nodeSize / 2 - 2,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutCubic,
+                  width: progress * usableTrack,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppPalette.red,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 420),
+                curve: Curves.easeOutBack,
+                left: carLeft,
+                top: compact ? 1 : 2,
+                child: _TimelineCarMarker(size: carSize),
+              ),
+              ...List.generate(statuses.length, (index) {
+                final left = statuses.length <= 1
+                    ? 0.0
+                    : index * (width - nodeSize) / (statuses.length - 1);
+                final isReached = index <= activeIndex;
+                final isActive = index == activeIndex;
+                final isFinal = index == statuses.length - 1;
+                return Positioned(
+                  left: left,
+                  top: trackTop,
+                  child: _TimelineNode(
+                    size: nodeSize,
+                    reached: isReached,
+                    active: isActive,
+                    finalNode: isFinal,
+                  ),
+                );
+              }),
+              if (!compact)
+                ...List.generate(statuses.length, (index) {
+                  final segmentWidth = width / statuses.length;
+                  final isReached = index <= activeIndex;
+                  final isActive = index == activeIndex;
+                  return Positioned(
+                    left: index * segmentWidth,
+                    top: labelTop,
+                    width: segmentWidth,
+                    child: Text(
+                      statuses[index].label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: isActive ? AppPalette.red : AppPalette.black,
+                        fontWeight: isReached
+                            ? FontWeight.w900
+                            : FontWeight.w600,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TimelineCarMarker extends StatelessWidget {
+  const _TimelineCarMarker({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppPalette.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppPalette.red, width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: AppPalette.red.withValues(alpha: 0.25),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
+      child: Icon(
+        Icons.directions_car_filled_rounded,
+        color: AppPalette.red,
+        size: size * 0.68,
+      ),
+    );
+  }
+}
+
+class _TimelineNode extends StatelessWidget {
+  const _TimelineNode({
+    required this.size,
+    required this.reached,
+    required this.active,
+    required this.finalNode,
+  });
+
+  final double size;
+  final bool reached;
+  final bool active;
+  final bool finalNode;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: finalNode && reached
+            ? AppPalette.black
+            : reached
+            ? AppPalette.red
+            : AppPalette.white,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: reached ? AppPalette.red : AppPalette.border,
+          width: active ? 2.4 : 2,
+        ),
+        boxShadow: active
+            ? [
+                BoxShadow(
+                  color: AppPalette.red.withValues(alpha: 0.3),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
+      ),
+      child: reached
+          ? finalNode
+                ? Center(child: _FinishFlagIcon(size: size * 0.62))
+                : Icon(
+                    Icons.check_rounded,
+                    color: AppPalette.white,
+                    size: size * 0.62,
+                  )
+          : null,
     );
   }
 }

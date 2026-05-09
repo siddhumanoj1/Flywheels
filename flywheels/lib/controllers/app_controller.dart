@@ -119,6 +119,11 @@ class AppController extends ChangeNotifier {
     return cars.firstWhere((car) => car.isActive, orElse: () => cars.first);
   }
 
+  CarWorkflowState workflowStateForCar(String carId) {
+    final job = latestJobForCar(carId);
+    return job?.workflowState ?? CarWorkflowState.registered;
+  }
+
   Future<void> bootstrap() async {
     _bootstrapTimer?.cancel();
     final completer = Completer<void>();
@@ -287,16 +292,13 @@ class AppController extends ChangeNotifier {
   }
 
   List<ServiceJob> jobsForCar(String carId) {
-    return jobs.where((job) => job.carId == carId).toList();
+    return jobs.where((job) => job.carId == carId).toList()
+      ..sort(_compareJobsByRecency);
   }
 
   ServiceJob? latestJobForCar(String carId) {
     final matches = jobsForCar(carId);
     if (matches.isEmpty) return null;
-    matches.sort(
-      (left, right) =>
-          right.expectedCompletion.compareTo(left.expectedCompletion),
-    );
     return matches.first;
   }
 
@@ -411,7 +413,15 @@ class AppController extends ChangeNotifier {
   void setJobStatus(String jobId, JobStatus status) {
     final index = _jobs.indexWhere((job) => job.id == jobId);
     if (index == -1) return;
-    _jobs[index] = _jobs[index].copyWith(status: status);
+    _jobs[index] = _jobs[index].copyWith(
+      status: status,
+      pickupRequired: status == JobStatus.onRoad
+          ? false
+          : _jobs[index].pickupRequired,
+      pickupState: status == JobStatus.onRoad
+          ? PickupState.completed
+          : _jobs[index].pickupState,
+    );
     final car = _cars
         .where((item) => item.id == _jobs[index].carId)
         .firstOrNull;
@@ -430,14 +440,55 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void assignPickup(String jobId) {
+  void assignPickup(
+    String jobId, {
+    required String personName,
+    required String personPhone,
+  }) {
     final index = _jobs.indexWhere((job) => job.id == jobId);
     if (index == -1) return;
+    final job = _jobs[index];
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    final isDelivery = job.status == JobStatus.completed;
+    final cleanName = personName.trim().isEmpty
+        ? isDelivery
+              ? 'Delivery executive'
+              : 'Pickup executive'
+        : personName.trim();
+    final cleanPhone = personPhone.trim();
     _jobs[index] = _jobs[index].copyWith(
       pickupRequired: true,
       pickupState: PickupState.assigned,
-      pickupTime: DateTime.now().add(const Duration(hours: 3)),
+      pickupPersonName: cleanName,
+      pickupPersonPhone: cleanPhone,
     );
+    if (car != null) {
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: 'note-${DateTime.now().millisecondsSinceEpoch}',
+          userId: car.userId,
+          title: isDelivery
+              ? 'Delivery person assigned'
+              : 'Pickup person assigned',
+          message:
+              '$cleanName${cleanPhone.isEmpty ? '' : ' ($cleanPhone)'} is assigned for ${car.carNumber}.',
+          createdAt: DateTime.now(),
+        ),
+      );
+      _messages.add(
+        SupportMessage(
+          id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+          userId: car.userId,
+          topic: isDelivery ? 'Delivery' : 'Pickup',
+          message:
+              '${isDelivery ? 'Delivery' : 'Pickup'} assigned to $cleanName${cleanPhone.isEmpty ? '' : ' ($cleanPhone)'}. Scheduled at ${_formatWhatsappDate(_jobs[index].pickupTime)}.',
+          createdAt: DateTime.now(),
+          carId: car.id,
+          sentByOwner: true,
+        ),
+      );
+    }
     notifyListeners();
   }
 
@@ -449,7 +500,12 @@ class AppController extends ChangeNotifier {
   }) {
     final car = _cars.where((item) => item.id == carId).firstOrNull;
     if (car == null) return;
-    final existingIndex = _jobs.indexWhere((job) => job.carId == carId);
+    final existingIndex = _jobs.indexWhere(
+      (job) => job.carId == carId && job.status != JobStatus.onRoad,
+    );
+    final isDeliveryRequest =
+        existingIndex >= 0 &&
+        _jobs[existingIndex].status == JobStatus.completed;
     if (existingIndex >= 0) {
       _jobs[existingIndex] = _jobs[existingIndex].copyWith(
         pickupRequired: true,
@@ -481,9 +537,11 @@ class AppController extends ChangeNotifier {
       AppNotification(
         id: 'note-${DateTime.now().millisecondsSinceEpoch}',
         userId: ownerUser.id,
-        title: 'Pickup and drop requested',
+        title: isDeliveryRequest
+            ? 'Delivery requested'
+            : 'Pickup and drop requested',
         message:
-            '${car.carNumber} requested pickup for ${_formatWhatsappDate(pickupTime)}.',
+            '${car.carNumber} requested ${isDeliveryRequest ? 'delivery' : 'pickup'} for ${_formatWhatsappDate(pickupTime)}.',
         createdAt: DateTime.now(),
       ),
     );
@@ -492,9 +550,11 @@ class AppController extends ChangeNotifier {
       AppNotification(
         id: 'note-${DateTime.now().millisecondsSinceEpoch + 1}',
         userId: car.userId,
-        title: 'Pickup and drop requested',
+        title: isDeliveryRequest
+            ? 'Delivery requested'
+            : 'Pickup and drop requested',
         message:
-            'Pickup and drop is requested for ${car.carNumber} at ${_formatWhatsappDate(pickupTime)}.',
+            '${isDeliveryRequest ? 'Delivery' : 'Pickup and drop'} is requested for ${car.carNumber} at ${_formatWhatsappDate(pickupTime)}.',
         createdAt: DateTime.now(),
       ),
     );
@@ -502,9 +562,9 @@ class AppController extends ChangeNotifier {
       SupportMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         userId: car.userId,
-        topic: 'Pickup and drop',
+        topic: isDeliveryRequest ? 'Delivery' : 'Pickup and drop',
         message:
-            'Pickup requested for ${_formatWhatsappDate(pickupTime)}${pickupAddress == null || pickupAddress.isEmpty ? '' : ' at $pickupAddress'}.',
+            '${isDeliveryRequest ? 'Delivery' : 'Pickup'} requested for ${_formatWhatsappDate(pickupTime)}${pickupAddress == null || pickupAddress.isEmpty ? '' : ' at $pickupAddress'}.',
         createdAt: DateTime.now(),
         carId: car.id,
       ),
@@ -512,13 +572,61 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void completePickup(String jobId) {
+  void completePickup(String jobId, {String? proofImagePath}) {
     final index = _jobs.indexWhere((job) => job.id == jobId);
     if (index == -1) return;
+    final car = _cars
+        .where((item) => item.id == _jobs[index].carId)
+        .firstOrNull;
+    final isDelivery = _jobs[index].status == JobStatus.completed;
     _jobs[index] = _jobs[index].copyWith(
-      pickupRequired: true,
+      pickupRequired: !isDelivery,
       pickupState: PickupState.completed,
+      status: isDelivery ? JobStatus.onRoad : _jobs[index].status,
     );
+    if (car != null) {
+      if (proofImagePath != null && proofImagePath.trim().isNotEmpty) {
+        _photoUpdates.insert(
+          0,
+          GaragePhotoUpdate(
+            id: 'photo-${DateTime.now().millisecondsSinceEpoch}',
+            userId: car.userId,
+            carId: car.id,
+            imagePath: proofImagePath.trim(),
+            caption: isDelivery
+                ? 'Delivery completed and vehicle handed over.'
+                : 'Pickup completed and vehicle received at garage.',
+            createdAt: DateTime.now(),
+          ),
+        );
+      }
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: 'note-${DateTime.now().millisecondsSinceEpoch + 1}',
+          userId: car.userId,
+          title: isDelivery ? 'Delivery completed' : 'Pickup completed',
+          message: isDelivery
+              ? '${car.carNumber} is back on road.'
+              : '${car.carNumber} has been received by the garage.',
+          createdAt: DateTime.now(),
+        ),
+      );
+      _messages.add(
+        SupportMessage(
+          id: 'msg-${DateTime.now().millisecondsSinceEpoch + 2}',
+          userId: car.userId,
+          topic: isDelivery ? 'Delivery' : 'Pickup',
+          message: isDelivery
+              ? '${car.carNumber} delivery is complete. Vehicle is back on road.'
+              : '${car.carNumber} pickup is complete. Vehicle is now at the garage.',
+          createdAt: DateTime.now(),
+          carId: car.id,
+          sentByOwner: true,
+          attachmentPath: proofImagePath,
+        ),
+      );
+    }
     notifyListeners();
   }
 
@@ -546,10 +654,18 @@ class AppController extends ChangeNotifier {
     required String carId,
     required String imagePath,
     required String caption,
+    JobStatus? status,
   }) {
     final car = _cars.where((item) => item.id == carId).firstOrNull;
     if (car == null) return;
     final now = DateTime.now();
+    final latestJob = latestJobForCar(carId);
+    final jobIndex = latestJob == null
+        ? -1
+        : _jobs.indexWhere((job) => job.id == latestJob.id);
+    if (status != null && jobIndex >= 0) {
+      _jobs[jobIndex] = _jobs[jobIndex].copyWith(status: status);
+    }
 
     _photoUpdates.insert(
       0,
@@ -569,9 +685,25 @@ class AppController extends ChangeNotifier {
       AppNotification(
         id: 'note-${now.millisecondsSinceEpoch + 1}',
         userId: car.userId,
-        title: 'New garage photos',
-        message: 'Fresh progress photos were added for ${car.carNumber}.',
+        title: status == null ? 'New garage photos' : 'Status photo update',
+        message: status == null
+            ? 'Fresh progress photos were added for ${car.carNumber}.'
+            : '${car.carNumber} is now ${status.label} with a photo update.',
         createdAt: now,
+      ),
+    );
+    _messages.add(
+      SupportMessage(
+        id: 'msg-${now.millisecondsSinceEpoch + 2}',
+        userId: car.userId,
+        topic: status == null ? 'Garage photos' : status.label,
+        message: caption.trim().isEmpty
+            ? 'Photo update shared from the garage.'
+            : caption.trim(),
+        createdAt: now,
+        carId: car.id,
+        attachmentPath: imagePath,
+        sentByOwner: true,
       ),
     );
     notifyListeners();
@@ -656,6 +788,27 @@ class AppController extends ChangeNotifier {
       pdfLabel: '${draft.type.label} PDF',
     );
     _documents.insert(0, document);
+    if (relatedJob != null) {
+      switch (draft.type) {
+        case DocumentType.quotation:
+        case DocumentType.estimation:
+          if (relatedJob.status == JobStatus.received) {
+            setJobStatus(relatedJob.id, JobStatus.underInspection);
+          }
+          break;
+        case DocumentType.jobCard:
+          if (relatedJob.status == JobStatus.received ||
+              relatedJob.status == JobStatus.underInspection) {
+            setJobStatus(relatedJob.id, JobStatus.workInProgress);
+          }
+          break;
+        case DocumentType.invoice:
+          if (relatedJob.status == JobStatus.workInProgress) {
+            setJobStatus(relatedJob.id, JobStatus.completed);
+          }
+          break;
+      }
+    }
 
     _notifications.insert(
       0,
@@ -932,6 +1085,11 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void deleteDocument(String documentId) {
+    _documents.removeWhere((document) => document.id == documentId);
+    notifyListeners();
+  }
+
   void addCustomerAssetDocument({
     required String carId,
     required PersonalDocumentType type,
@@ -964,7 +1122,6 @@ class AppController extends ChangeNotifier {
         'Vehicle: ${car?.carNumber ?? '-'}\n'
         'Date: ${_formatWhatsappDate(document.updatedAt)}\n'
         'Total: ${document.total.toStringAsFixed(0)}\n'
-        'Status: ${document.approvalState.name}\n'
         'PDF: ${document.title}.pdf';
   }
 
@@ -1011,6 +1168,22 @@ class AppController extends ChangeNotifier {
       digits = digits.substring(1);
     }
     return digits;
+  }
+
+  int _compareJobsByRecency(ServiceJob left, ServiceJob right) {
+    if (left.status != JobStatus.onRoad && right.status == JobStatus.onRoad) {
+      return -1;
+    }
+    if (left.status == JobStatus.onRoad && right.status != JobStatus.onRoad) {
+      return 1;
+    }
+    return _jobRecency(right).compareTo(_jobRecency(left));
+  }
+
+  DateTime _jobRecency(ServiceJob job) {
+    return job.pickupTime.isAfter(job.expectedCompletion)
+        ? job.pickupTime
+        : job.expectedCompletion;
   }
 }
 

@@ -2,6 +2,24 @@ import 'package:flywheels/models/app_models.dart';
 
 String formatCurrency(num value) => 'Rs ${value.toStringAsFixed(0)}';
 
+String formatLongDate(DateTime value) {
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  return '${value.day} ${months[value.month - 1]} ${value.year}';
+}
+
 String formatShortDate(DateTime value) {
   const months = [
     'Jan',
@@ -18,6 +36,13 @@ String formatShortDate(DateTime value) {
     'Dec',
   ];
   return '${value.day} ${months[value.month - 1]}';
+}
+
+String formatCustomerNameForDocument(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return 'N/A';
+  if (trimmed.toLowerCase().endsWith('garu')) return trimmed;
+  return '$trimmed Garu';
 }
 
 String formatDateTime(DateTime value) {
@@ -41,7 +66,7 @@ String statusLabel(JobStatus status) {
       return 'Work in Progress';
     case JobStatus.completed:
       return 'Completed';
-    case JobStatus.readyForDelivery:
-      return 'Ready for Delivery';
+    case JobStatus.onRoad:
+      return 'On-Road';
   }
 }

@@ -26,7 +26,6 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   String? _preferredCarId;
   String? _selectedOwnerChatUserId;
   String? _selectedOwnerChatCarId;
-  String _ownerChatTopic = 'Garage update';
   String _ownerChatSearch = '';
   bool _ownerChatSlideForward = true;
   _OwnerGarageFilter _garageFilter = _OwnerGarageFilter.inGarage;
@@ -37,7 +36,11 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
     super.dispose();
   }
 
-  Future<void> _addGaragePhoto(BuildContext context, CarProfile car) async {
+  Future<void> _addGaragePhoto(
+    BuildContext context,
+    CarProfile car, {
+    JobStatus? status,
+  }) async {
     final controller = FlywheelsScope.read(context);
     final captionController = TextEditingController();
     final caption = await showModalBottomSheet<String>(
@@ -61,7 +64,9 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Add a caption for the photo you are about to upload for ${car.carNumber}.',
+                status == null
+                    ? 'Add a caption for the photo you are about to upload for ${car.carNumber}.'
+                    : 'This photo will move ${car.carNumber} to ${status.label}.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
@@ -101,7 +106,102 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       carId: car.id,
       imagePath: image.path,
       caption: caption,
+      status: status,
     );
+  }
+
+  void _showPickupAssignmentSheet(BuildContext context, ServiceJob job) {
+    final controller = FlywheelsScope.read(context);
+    final car = controller.cars
+        .where((item) => item.id == job.carId)
+        .firstOrNull;
+    final nameController = TextEditingController(
+      text: job.pickupPersonName ?? '',
+    );
+    final phoneController = TextEditingController(
+      text: job.pickupPersonPhone ?? '',
+    );
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Assign pickup',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${car?.carNumber ?? 'Vehicle'} | ${formatDateTime(job.pickupTime)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Pickup person name',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Pickup person phone',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      controller.assignPickup(
+                        job.id,
+                        personName: nameController.text,
+                        personPhone: phoneController.text,
+                      );
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.local_shipping_outlined),
+                    label: const Text('Assign and notify customer'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() {
+      nameController.dispose();
+      phoneController.dispose();
+    });
+  }
+
+  Future<void> _completePickupWithPhoto(
+    BuildContext context,
+    ServiceJob job,
+  ) async {
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (!context.mounted) return;
+    FlywheelsScope.read(
+      context,
+    ).completePickup(job.id, proofImagePath: image?.path);
   }
 
   void _showAddOwnerCarSheet(BuildContext context) {
@@ -265,20 +365,11 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
     }
     controller.sendOwnerMessage(
       customerUserId: _selectedOwnerChatUserId!,
-      topic: _ownerChatTopic,
+      topic: 'Garage update',
       message: _ownerReplyController.text.trim(),
       carId: _selectedOwnerChatCarId,
     );
     setState(() => _ownerReplyController.clear());
-  }
-
-  void _insertOwnerQuickMessage(String message) {
-    setState(() {
-      _ownerReplyController.text = message;
-      _ownerReplyController.selection = TextSelection.collapsed(
-        offset: _ownerReplyController.text.length,
-      );
-    });
   }
 
   Future<void> _sendDocumentToSelectedChat(ServiceDocument document) async {
@@ -307,11 +398,30 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
     }
   }
 
+  Future<void> _sendOwnerChatPhoto() async {
+    final customerUserId = _selectedOwnerChatUserId;
+    if (customerUserId == null) return;
+
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (image == null || !mounted) return;
+
+    FlywheelsScope.read(context).sendOwnerMessage(
+      customerUserId: customerUserId,
+      topic: 'Photo',
+      message: _ownerReplyController.text.trim(),
+      carId: _selectedOwnerChatCarId,
+      attachmentPath: image.path,
+    );
+    setState(() => _ownerReplyController.clear());
+  }
+
   void _openChatForCar(CarProfile car) {
     setState(() {
       _selectedOwnerChatUserId = car.userId;
       _selectedOwnerChatCarId = car.id;
-      _ownerChatTopic = 'Garage update';
       _ownerChatSlideForward = true;
       _currentIndex = 2;
     });
@@ -327,7 +437,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       appBar: AppBar(
         title: Row(
           children: [
-            const BrandLogo(size: 30),
+            const BrandLogo(size: 33),
             const SizedBox(width: 14),
             Text(titles[_currentIndex]),
           ],
@@ -342,7 +452,19 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          const _OwnerDashboardTab(),
+          _OwnerDashboardTab(
+            onAssignPickup: (job) => _showPickupAssignmentSheet(context, job),
+            onCompletePickup: (job) => _completePickupWithPhoto(context, job),
+            onOpenCars: (filter) => setState(() {
+              _garageFilter = filter;
+              _currentIndex = 1;
+            }),
+            onOpenDocuments: (carId) => setState(() {
+              _preferredCarId = carId.isEmpty ? null : carId;
+              _currentIndex = 3;
+            }),
+            onOpenChat: _openChatForCar,
+          ),
           _OwnerOperationsTab(
             filter: _garageFilter,
             onFilterChanged: (value) => setState(() => _garageFilter = value),
@@ -353,13 +475,15 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
               });
             },
             onOpenChat: _openChatForCar,
-            onAddPhoto: (car) => _addGaragePhoto(context, car),
+            onAddPhoto: (car, status) =>
+                _addGaragePhoto(context, car, status: status),
+            onAssignPickup: (job) => _showPickupAssignmentSheet(context, job),
+            onCompletePickup: (job) => _completePickupWithPhoto(context, job),
             onAddCar: () => _showAddOwnerCarSheet(context),
           ),
           _OwnerChatTab(
             selectedUserId: _selectedOwnerChatUserId,
             selectedCarId: _selectedOwnerChatCarId,
-            selectedTopic: _ownerChatTopic,
             searchQuery: _ownerChatSearch,
             slideForward: _ownerChatSlideForward,
             replyController: _ownerReplyController,
@@ -375,11 +499,10 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             }),
             onCarChanged: (value) =>
                 setState(() => _selectedOwnerChatCarId = value),
-            onTopicChanged: (value) => setState(() => _ownerChatTopic = value),
             onSearchChanged: (value) =>
                 setState(() => _ownerChatSearch = value),
-            onQuickMessage: _insertOwnerQuickMessage,
             onSendDocument: _sendDocumentToSelectedChat,
+            onSendPhoto: _sendOwnerChatPhoto,
             onSend: _sendOwnerReply,
           ),
           OwnerDocumentTab(preferredCarId: _preferredCarId),
@@ -421,10 +544,22 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   }
 }
 
-enum _OwnerGarageFilter { inGarage, inTransit, completed }
+enum _OwnerGarageFilter { inGarage, inTransit, completed, onRoad }
 
 class _OwnerDashboardTab extends StatelessWidget {
-  const _OwnerDashboardTab();
+  const _OwnerDashboardTab({
+    required this.onAssignPickup,
+    required this.onCompletePickup,
+    required this.onOpenCars,
+    required this.onOpenDocuments,
+    required this.onOpenChat,
+  });
+
+  final ValueChanged<ServiceJob> onAssignPickup;
+  final ValueChanged<ServiceJob> onCompletePickup;
+  final ValueChanged<_OwnerGarageFilter> onOpenCars;
+  final ValueChanged<String> onOpenDocuments;
+  final ValueChanged<CarProfile> onOpenChat;
 
   void _openMetricSheet(
     BuildContext context,
@@ -509,7 +644,7 @@ class _OwnerDashboardTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
-    final jobs = controller.jobs;
+    final cars = controller.cars;
     final documents = controller.documents;
     final pending = documents
         .where((document) => document.approvalState == ApprovalState.pending)
@@ -517,22 +652,56 @@ class _OwnerDashboardTab extends StatelessWidget {
     final revenue = documents
         .where((document) => document.type == DocumentType.invoice)
         .fold<double>(0, (sum, doc) => sum + doc.total);
-    final completed = jobs
+    final inGarage = cars
+        .where((car) => controller.workflowStateForCar(car.id).isInGarage)
+        .toList();
+    final transitQueue = cars
+        .where((car) => controller.workflowStateForCar(car.id).isTransit)
+        .toList();
+    final completed = cars
         .where(
-          (job) =>
-              job.status == JobStatus.completed ||
-              job.status == JobStatus.readyForDelivery,
+          (car) =>
+              controller.workflowStateForCar(car.id) ==
+              CarWorkflowState.readyForDelivery,
         )
         .toList();
+    final inspection = cars
+        .where(
+          (car) =>
+              controller.workflowStateForCar(car.id) ==
+              CarWorkflowState.underInspection,
+        )
+        .toList();
+    final workInProgress = cars
+        .where(
+          (car) =>
+              controller.workflowStateForCar(car.id) ==
+              CarWorkflowState.workInProgress,
+        )
+        .toList();
+    final invoicesDue = documents
+        .where(
+          (document) =>
+              document.type == DocumentType.invoice &&
+              document.paymentState != PaymentState.paid,
+        )
+        .toList();
+    final urgentDocuments = pending.take(3).toList();
+    final actionJobs = cars
+        .where((car) => controller.workflowStateForCar(car.id).needsOwnerAction)
+        .map((car) => controller.latestJobForCar(car.id))
+        .whereType<ServiceJob>()
+        .take(5)
+        .toList();
 
-    _DashboardDetailItem carJobItem(ServiceJob job) {
-      final car = controller.cars.firstWhere((item) => item.id == job.carId);
+    _DashboardDetailItem carItem(CarProfile car) {
       final customer = controller.customerForCar(car.id);
+      final state = controller.workflowStateForCar(car.id);
       return _DashboardDetailItem(
         icon: Icons.directions_car_rounded,
         title: '${car.carNumber} - ${car.model}',
         subtitle:
-            '${customer?.name ?? 'Customer'} | ${customer?.phone ?? '-'} | ${job.status.label}',
+            '${customer?.name ?? 'Customer'} | ${customer?.phone ?? '-'} | ${state.label}',
         searchText:
             '${customer?.name ?? ''} ${customer?.phone ?? ''} ${car.carNumber}',
       );
@@ -576,6 +745,22 @@ class _OwnerDashboardTab extends StatelessWidget {
       key: const PageStorageKey('owner-dashboard'),
       padding: const EdgeInsets.all(16),
       children: [
+        _OwnerTodayHeader(
+          pickupCount: transitQueue.length,
+          inspectionCount: inspection.length,
+          workCount: workInProgress.length,
+          documentCount: pending.length,
+        ),
+        const SizedBox(height: 14),
+        _OwnerWorkflowStrip(
+          pickupCount: transitQueue.length,
+          garageCount: inGarage.length,
+          inspectionCount: inspection.length,
+          workCount: workInProgress.length,
+          completedCount: completed.length,
+          onOpenCars: onOpenCars,
+        ),
+        const SizedBox(height: 16),
         GridView.count(
           crossAxisCount: 2,
           shrinkWrap: true,
@@ -587,11 +772,11 @@ class _OwnerDashboardTab extends StatelessWidget {
             _MetricCard(
               icon: Icons.directions_car_rounded,
               label: 'Cars in garage',
-              value: jobs.length.toString(),
+              value: inGarage.length.toString(),
               onTap: () => _openMetricSheet(
                 context,
                 'Cars in garage',
-                jobs.map(carJobItem).toList(),
+                inGarage.map(carItem).toList(),
               ),
             ),
             _MetricCard(
@@ -608,7 +793,7 @@ class _OwnerDashboardTab extends StatelessWidget {
               onTap: () => _openMetricSheet(
                 context,
                 'Completed jobs',
-                completed.map(carJobItem).toList(),
+                completed.map(carItem).toList(),
               ),
             ),
             _MetricCard(
@@ -620,42 +805,598 @@ class _OwnerDashboardTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
+        _OwnerPriorityQueue(
+          jobs: actionJobs,
+          controller: controller,
+          onAssignPickup: onAssignPickup,
+          onCompletePickup: onCompletePickup,
+          onOpenDocuments: onOpenDocuments,
+          onOpenChat: onOpenChat,
+        ),
+        const SizedBox(height: 16),
+        _OwnerDocumentActions(
+          pending: urgentDocuments,
+          invoicesDue: invoicesDue,
+          onOpenDocuments: onOpenDocuments,
+        ),
+        const SizedBox(height: 16),
+        _OwnerRecentUpdates(
+          notifications: controller.notifications.take(5).toList(),
+        ),
+        const SizedBox(height: 16),
+        _OwnerQuickLaunchRow(
+          onOpenGarage: () => onOpenCars(_OwnerGarageFilter.inGarage),
+          onOpenTransit: () => onOpenCars(_OwnerGarageFilter.inTransit),
+          onOpenDocuments: () => onOpenDocuments(''),
+        ),
+        const SizedBox(height: 12),
+        if (revenueItems.isEmpty && pendingItems.isEmpty)
+          const _EmptyOwnerList(message: 'No document activity yet.'),
+        if (pendingItems.isNotEmpty || revenueItems.isNotEmpty)
+          _OwnerSmallSummary(
+            pendingItems: pendingItems.length,
+            invoiceItems: revenueItems.length,
+            revenue: revenue,
+          ),
+      ],
+    );
+  }
+}
+
+class _OwnerTodayHeader extends StatelessWidget {
+  const _OwnerTodayHeader({
+    required this.pickupCount,
+    required this.inspectionCount,
+    required this.workCount,
+    required this.documentCount,
+  });
+
+  final int pickupCount;
+  final int inspectionCount;
+  final int workCount;
+  final int documentCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final focusCount =
+        pickupCount + inspectionCount + workCount + documentCount;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppPalette.black,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppPalette.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.speed_rounded, color: AppPalette.white),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Requests that need action',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  'Today needs $focusCount actions',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(color: AppPalette.white),
                 ),
-                const SizedBox(height: 10),
-                ...pending.map(
-                  (document) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(document.title),
-                    subtitle: Text(
-                      '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
-                    ),
-                    trailing: Text(formatShortDate(document.updatedAt)),
+                const SizedBox(height: 4),
+                Text(
+                  '$pickupCount pickup, $inspectionCount inspection, $workCount work, $documentCount approval',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppPalette.white.withValues(alpha: 0.72),
                   ),
                 ),
-                ...controller.notifications
-                    .take(4)
-                    .map(
-                      (notification) => ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(notification.title),
-                        subtitle: Text(notification.message),
-                        trailing: Text(formatShortDate(notification.createdAt)),
-                      ),
-                    ),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OwnerWorkflowStrip extends StatelessWidget {
+  const _OwnerWorkflowStrip({
+    required this.pickupCount,
+    required this.garageCount,
+    required this.inspectionCount,
+    required this.workCount,
+    required this.completedCount,
+    required this.onOpenCars,
+  });
+
+  final int pickupCount;
+  final int garageCount;
+  final int inspectionCount;
+  final int workCount;
+  final int completedCount;
+  final ValueChanged<_OwnerGarageFilter> onOpenCars;
+
+  @override
+  Widget build(BuildContext context) {
+    final stages = [
+      (
+        icon: Icons.local_shipping_outlined,
+        label: 'Transit',
+        count: pickupCount,
+        filter: _OwnerGarageFilter.inTransit,
+      ),
+      (
+        icon: Icons.home_repair_service_outlined,
+        label: 'Garage',
+        count: garageCount,
+        filter: _OwnerGarageFilter.inGarage,
+      ),
+      (
+        icon: Icons.search_rounded,
+        label: 'Inspect',
+        count: inspectionCount,
+        filter: _OwnerGarageFilter.inGarage,
+      ),
+      (
+        icon: Icons.handyman_outlined,
+        label: 'Work',
+        count: workCount,
+        filter: _OwnerGarageFilter.inGarage,
+      ),
+      (
+        icon: Icons.task_alt_rounded,
+        label: 'Done',
+        count: completedCount,
+        filter: _OwnerGarageFilter.completed,
+      ),
+    ];
+
+    return SizedBox(
+      height: 96,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: stages.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final stage = stages[index];
+          return _OwnerStageTile(
+            icon: stage.icon,
+            label: stage.label,
+            count: stage.count,
+            onTap: () => onOpenCars(stage.filter),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _OwnerStageTile extends StatelessWidget {
+  const _OwnerStageTile({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 112,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppPalette.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppPalette.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 20),
+              const Spacer(),
+              Text(
+                count.toString(),
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OwnerPriorityQueue extends StatelessWidget {
+  const _OwnerPriorityQueue({
+    required this.jobs,
+    required this.controller,
+    required this.onAssignPickup,
+    required this.onCompletePickup,
+    required this.onOpenDocuments,
+    required this.onOpenChat,
+  });
+
+  final List<ServiceJob> jobs;
+  final AppController controller;
+  final ValueChanged<ServiceJob> onAssignPickup;
+  final ValueChanged<ServiceJob> onCompletePickup;
+  final ValueChanged<String> onOpenDocuments;
+  final ValueChanged<CarProfile> onOpenChat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bolt_rounded),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Next actions',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (jobs.isEmpty)
+              Text(
+                'No active workflow items need attention.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ...jobs.map((job) {
+              final car = controller.cars
+                  .where((item) => item.id == job.carId)
+                  .firstOrNull;
+              if (car == null) return const SizedBox.shrink();
+              final customer = controller.customerForCar(car.id);
+              return _OwnerActionTile(
+                icon: _actionIcon(job),
+                title: car.carNumber,
+                subtitle:
+                    '${customer?.name ?? 'Customer'} | ${_actionLabel(job)}',
+                primaryIcon: _primaryIcon(job),
+                onPrimary: () => _runPrimary(job, car),
+                onChat: () => onOpenChat(car),
+                onDocs: () => onOpenDocuments(car.id),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _actionIcon(ServiceJob job) {
+    if (job.workflowState.isTransit) {
+      return Icons.local_shipping_outlined;
+    }
+    switch (job.status) {
+      case JobStatus.received:
+        return Icons.inventory_2_outlined;
+      case JobStatus.underInspection:
+        return Icons.search_rounded;
+      case JobStatus.workInProgress:
+        return Icons.handyman_outlined;
+      case JobStatus.completed:
+        return Icons.receipt_long_outlined;
+      case JobStatus.onRoad:
+        return Icons.route_rounded;
+    }
+  }
+
+  IconData _primaryIcon(ServiceJob job) {
+    if (job.workflowState.isTransit &&
+        job.pickupState == PickupState.requested) {
+      return Icons.person_add_alt_1_rounded;
+    }
+    if (job.workflowState.isTransit &&
+        job.pickupState == PickupState.assigned) {
+      return Icons.task_alt_rounded;
+    }
+    if (job.status == JobStatus.completed) return Icons.receipt_long_rounded;
+    return Icons.chat_bubble_outline_rounded;
+  }
+
+  String _actionLabel(ServiceJob job) {
+    final state = job.workflowState;
+    if (state.isTransit) {
+      final isDelivery =
+          state == CarWorkflowState.deliveryRequested ||
+          state == CarWorkflowState.deliveryAssigned;
+      if (job.pickupState == PickupState.requested) {
+        return isDelivery ? 'Assign delivery person' : 'Assign pickup person';
+      }
+      return isDelivery ? 'Mark delivered' : 'Mark pickup done';
+    }
+    switch (job.status) {
+      case JobStatus.received:
+        return 'Move into inspection';
+      case JobStatus.underInspection:
+        return 'Prepare job card or quotation';
+      case JobStatus.workInProgress:
+        return 'Share progress photo';
+      case JobStatus.completed:
+        return 'Send invoice';
+      case JobStatus.onRoad:
+        return 'Available for new quote';
+    }
+  }
+
+  void _runPrimary(ServiceJob job, CarProfile car) {
+    if (job.workflowState.isTransit &&
+        job.pickupState == PickupState.requested) {
+      onAssignPickup(job);
+      return;
+    }
+    if (job.workflowState.isTransit &&
+        job.pickupState == PickupState.assigned) {
+      onCompletePickup(job);
+      return;
+    }
+    if (job.status == JobStatus.completed) {
+      onOpenDocuments(car.id);
+      return;
+    }
+    onOpenChat(car);
+  }
+}
+
+class _OwnerActionTile extends StatelessWidget {
+  const _OwnerActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.primaryIcon,
+    required this.onPrimary,
+    required this.onChat,
+    required this.onDocs,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final IconData primaryIcon;
+  final VoidCallback onPrimary;
+  final VoidCallback onChat;
+  final VoidCallback onDocs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          IconButton.outlined(
+            tooltip: 'Primary action',
+            onPressed: onPrimary,
+            icon: Icon(primaryIcon),
+          ),
+          IconButton.outlined(
+            tooltip: 'Chat',
+            onPressed: onChat,
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+          ),
+          IconButton.outlined(
+            tooltip: 'Documents',
+            onPressed: onDocs,
+            icon: const Icon(Icons.receipt_long_outlined),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OwnerDocumentActions extends StatelessWidget {
+  const _OwnerDocumentActions({
+    required this.pending,
+    required this.invoicesDue,
+    required this.onOpenDocuments,
+  });
+
+  final List<ServiceDocument> pending;
+  final List<ServiceDocument> invoicesDue;
+  final ValueChanged<String> onOpenDocuments;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [...pending, ...invoicesDue].take(5).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.description_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Documents to send or collect',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (items.isEmpty)
+              Text(
+                'No document actions pending.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ...items.map((document) {
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  document.type == DocumentType.invoice
+                      ? Icons.receipt_long_rounded
+                      : Icons.request_quote_rounded,
+                ),
+                title: Text(document.title),
+                subtitle: Text(
+                  '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
+                ),
+                trailing: IconButton.outlined(
+                  tooltip: 'Open document studio',
+                  onPressed: () => onOpenDocuments(document.carId),
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OwnerRecentUpdates extends StatelessWidget {
+  const _OwnerRecentUpdates({required this.notifications});
+
+  final List<AppNotification> notifications;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Recent updates',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (notifications.isEmpty)
+              Text(
+                'No recent notifications.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ...notifications.map(
+              (notification) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(notification.title),
+                subtitle: Text(notification.message),
+                trailing: Text(formatShortDate(notification.createdAt)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OwnerQuickLaunchRow extends StatelessWidget {
+  const _OwnerQuickLaunchRow({
+    required this.onOpenGarage,
+    required this.onOpenTransit,
+    required this.onOpenDocuments,
+  });
+
+  final VoidCallback onOpenGarage;
+  final VoidCallback onOpenTransit;
+  final VoidCallback onOpenDocuments;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: onOpenGarage,
+            icon: const Icon(Icons.home_repair_service_outlined),
+            label: const Text('Garage'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onOpenTransit,
+            icon: const Icon(Icons.local_shipping_outlined),
+            label: const Text('Transit'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onOpenDocuments,
+            icon: const Icon(Icons.edit_document),
+            label: const Text('Docs'),
+          ),
         ),
       ],
+    );
+  }
+}
+
+class _OwnerSmallSummary extends StatelessWidget {
+  const _OwnerSmallSummary({
+    required this.pendingItems,
+    required this.invoiceItems,
+    required this.revenue,
+  });
+
+  final int pendingItems;
+  final int invoiceItems;
+  final double revenue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '$pendingItems approvals, $invoiceItems invoices, ${formatCurrency(revenue)} recorded',
+      style: Theme.of(context).textTheme.bodySmall,
+      textAlign: TextAlign.center,
     );
   }
 }
@@ -728,6 +1469,8 @@ class _OwnerOperationsTab extends StatelessWidget {
     required this.onOpenDocuments,
     required this.onOpenChat,
     required this.onAddPhoto,
+    required this.onAssignPickup,
+    required this.onCompletePickup,
     required this.onAddCar,
   });
 
@@ -735,23 +1478,23 @@ class _OwnerOperationsTab extends StatelessWidget {
   final ValueChanged<_OwnerGarageFilter> onFilterChanged;
   final ValueChanged<String> onOpenDocuments;
   final ValueChanged<CarProfile> onOpenChat;
-  final ValueChanged<CarProfile> onAddPhoto;
+  final void Function(CarProfile car, JobStatus? status) onAddPhoto;
+  final ValueChanged<ServiceJob> onAssignPickup;
+  final ValueChanged<ServiceJob> onCompletePickup;
   final VoidCallback onAddCar;
 
-  List<ServiceJob> _visibleJobs(List<ServiceJob> jobs) {
-    return jobs.where((job) {
+  List<CarProfile> _visibleCars(AppController controller) {
+    return controller.cars.where((car) {
+      final state = controller.workflowStateForCar(car.id);
       switch (filter) {
         case _OwnerGarageFilter.inGarage:
-          return job.status == JobStatus.received ||
-              job.status == JobStatus.underInspection ||
-              job.status == JobStatus.workInProgress;
+          return state.isInGarage;
         case _OwnerGarageFilter.inTransit:
-          return job.pickupRequired &&
-              (job.pickupState == PickupState.requested ||
-                  job.pickupState == PickupState.assigned);
+          return state.isTransit;
         case _OwnerGarageFilter.completed:
-          return job.status == JobStatus.completed ||
-              job.status == JobStatus.readyForDelivery;
+          return state == CarWorkflowState.readyForDelivery;
+        case _OwnerGarageFilter.onRoad:
+          return state.isAvailable;
       }
     }).toList();
   }
@@ -760,12 +1503,13 @@ class _OwnerOperationsTab extends StatelessWidget {
     BuildContext context,
     AppController controller,
     CarProfile car,
-    ServiceJob job,
+    ServiceJob? job,
   ) {
     final customer = controller.customerForCar(car.id);
     final documents = controller.documentsForCar(car.id);
     final history = controller.jobsForCar(car.id);
     final photos = controller.photoUpdatesForCar(car.id);
+    final state = controller.workflowStateForCar(car.id);
 
     showModalBottomSheet<void>(
       context: context,
@@ -807,48 +1551,95 @@ class _OwnerOperationsTab extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  HorizontalServiceTimeline(status: job.status),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<JobStatus>(
-                    initialValue: job.status,
-                    decoration: const InputDecoration(labelText: 'Status'),
-                    items: JobStatus.values
-                        .map(
-                          (status) => DropdownMenuItem<JobStatus>(
-                            value: status,
-                            child: Text(status.label),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      controller.setJobStatus(job.id, value);
-                      controller.sendStatusUpdate(
-                        job.id,
-                        '${car.carNumber} moved to ${value.label.toLowerCase()}.',
-                      );
-                      Navigator.of(context).pop();
-                    },
-                  ),
+                  if (job == null || state.isAvailable)
+                    _OwnerCarStateCard(state: state)
+                  else
+                    HorizontalServiceTimeline(status: job.status),
+                  const SizedBox(height: 12),
+                  if (job != null) _OwnerPickupWorkflowCard(job: job),
+                  if (job != null) const SizedBox(height: 10),
+                  if (job != null)
+                    DropdownButtonFormField<JobStatus>(
+                      initialValue: job.status,
+                      decoration: const InputDecoration(labelText: 'Status'),
+                      items: JobStatus.values
+                          .map(
+                            (status) => DropdownMenuItem<JobStatus>(
+                              value: status,
+                              child: Text(status.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        controller.setJobStatus(job.id, value);
+                        controller.sendStatusUpdate(
+                          job.id,
+                          '${car.carNumber} moved to ${value.label.toLowerCase()}.',
+                        );
+                        Navigator.of(context).pop();
+                      },
+                    ),
                   const SizedBox(height: 14),
                   GearboxActionGrid(
                     children: [
-                      AutomotiveControlButton(
-                        icon: Icons.local_shipping_outlined,
-                        label: 'Assign',
-                        active: job.pickupState == PickupState.assigned,
-                        onPressed: () => controller.assignPickup(job.id),
-                      ),
-                      AutomotiveControlButton(
-                        icon: Icons.task_alt_rounded,
-                        label: 'Pickup done',
-                        active: job.pickupState == PickupState.completed,
-                        onPressed: () => controller.completePickup(job.id),
-                      ),
+                      if (job != null) ...[
+                        AutomotiveControlButton(
+                          icon: Icons.local_shipping_outlined,
+                          label: state == CarWorkflowState.readyForDelivery
+                              ? 'Deliver'
+                              : 'Assign',
+                          active:
+                              job.pickupState == PickupState.assigned &&
+                              state.isTransit,
+                          onPressed: () => onAssignPickup(job),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.task_alt_rounded,
+                          label: state == CarWorkflowState.readyForDelivery
+                              ? 'Delivered'
+                              : 'Transit done',
+                          active: job.pickupState == PickupState.completed,
+                          onPressed: () => onCompletePickup(job),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.search_rounded,
+                          label: 'Inspect',
+                          active: job.status == JobStatus.underInspection,
+                          onPressed: () =>
+                              onAddPhoto(car, JobStatus.underInspection),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.handyman_outlined,
+                          label: 'Work photo',
+                          active: job.status == JobStatus.workInProgress,
+                          onPressed: () =>
+                              onAddPhoto(car, JobStatus.workInProgress),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.verified_outlined,
+                          label: 'Complete',
+                          active: job.status == JobStatus.completed,
+                          onPressed: () => onAddPhoto(car, JobStatus.completed),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.route_rounded,
+                          label: 'On-Road',
+                          active: job.status == JobStatus.onRoad,
+                          onPressed: () {
+                            controller.setJobStatus(job.id, JobStatus.onRoad);
+                            controller.sendStatusUpdate(
+                              job.id,
+                              '${car.carNumber} is back on road.',
+                            );
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                      ],
                       AutomotiveControlButton(
                         icon: Icons.photo_camera_outlined,
                         label: 'Photo',
-                        onPressed: () => onAddPhoto(car),
+                        onPressed: () => onAddPhoto(car, null),
                       ),
                       AutomotiveControlButton(
                         icon: Icons.chat_bubble_outline_rounded,
@@ -869,10 +1660,12 @@ class _OwnerOperationsTab extends StatelessWidget {
                       AutomotiveControlButton(
                         icon: Icons.notifications_active_outlined,
                         label: 'Update',
-                        onPressed: () => controller.sendStatusUpdate(
-                          job.id,
-                          '${car.carNumber} update shared from the garage desk.',
-                        ),
+                        onPressed: job == null
+                            ? null
+                            : () => controller.sendStatusUpdate(
+                                job.id,
+                                '${car.carNumber} update shared from the garage desk.',
+                              ),
                       ),
                     ],
                   ),
@@ -946,7 +1739,7 @@ class _OwnerOperationsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
-    final visibleJobs = _visibleJobs(controller.jobs);
+    final visibleCars = _visibleCars(controller);
 
     return ListView(
       key: const PageStorageKey('owner-operations'),
@@ -978,17 +1771,21 @@ class _OwnerOperationsTab extends StatelessWidget {
               icon: Icon(Icons.task_alt_rounded),
               label: Text('Done'),
             ),
+            ButtonSegment(
+              value: _OwnerGarageFilter.onRoad,
+              icon: Icon(Icons.route_rounded),
+              label: Text('On-Road'),
+            ),
           ],
           selected: {filter},
           onSelectionChanged: (selection) => onFilterChanged(selection.first),
         ),
         const SizedBox(height: 12),
-        if (visibleJobs.isEmpty)
+        if (visibleCars.isEmpty)
           const _EmptyOwnerList(message: 'No cars match this view right now.'),
-        ...visibleJobs.map((job) {
-          final car = controller.cars.firstWhere(
-            (item) => item.id == job.carId,
-          );
+        ...visibleCars.map((car) {
+          final job = controller.latestJobForCar(car.id);
+          final state = controller.workflowStateForCar(car.id);
           final customer = controller.customerForCar(car.id);
           final documents = controller.documentsForCar(car.id);
 
@@ -1035,12 +1832,21 @@ class _OwnerOperationsTab extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 8),
-                            HorizontalServiceTimeline(
-                              status: job.status,
-                              compact: true,
-                            ),
+                            if (state.isAvailable)
+                              Text(
+                                state == CarWorkflowState.registered
+                                    ? 'Registered customer vehicle'
+                                    : 'Available for quote or pickup',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              )
+                            else
+                              HorizontalServiceTimeline(
+                                status: job!.status,
+                                compact: true,
+                              ),
                             Text(
-                              '${documents.length} docs | ${job.status.label}',
+                              '${documents.length} docs | ${state.label}',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -1056,6 +1862,99 @@ class _OwnerOperationsTab extends StatelessWidget {
           );
         }),
       ],
+    );
+  }
+}
+
+class _OwnerPickupWorkflowCard extends StatelessWidget {
+  const _OwnerPickupWorkflowCard({required this.job});
+
+  final ServiceJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = job.workflowState;
+    final isDelivery =
+        state == CarWorkflowState.deliveryRequested ||
+        state == CarWorkflowState.deliveryAssigned ||
+        state == CarWorkflowState.readyForDelivery;
+    final assignee = job.pickupPersonName == null
+        ? 'Not assigned'
+        : '${job.pickupPersonName}'
+              '${job.pickupPersonPhone == null || job.pickupPersonPhone!.isEmpty ? '' : ' | ${job.pickupPersonPhone}'}';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.local_shipping_outlined, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isDelivery
+                      ? 'Delivery ${job.pickupState.label}'
+                      : 'Pickup ${job.pickupState.label}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Time ${formatDateTime(job.pickupTime)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            'Person $assignee',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (job.pickupAddress != null && job.pickupAddress!.isNotEmpty)
+            Text(
+              'Address ${job.pickupAddress}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OwnerCarStateCard extends StatelessWidget {
+  const _OwnerCarStateCard({required this.state});
+
+  final CarWorkflowState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.route_rounded),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              state == CarWorkflowState.registered
+                  ? 'Registered: no active service job yet'
+                  : '${state.label}: available for quote or pickup',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1080,33 +1979,29 @@ class _OwnerChatTab extends StatelessWidget {
   const _OwnerChatTab({
     required this.selectedUserId,
     required this.selectedCarId,
-    required this.selectedTopic,
     required this.searchQuery,
     required this.slideForward,
     required this.replyController,
     required this.onUserChanged,
     required this.onBack,
     required this.onCarChanged,
-    required this.onTopicChanged,
     required this.onSearchChanged,
-    required this.onQuickMessage,
     required this.onSendDocument,
+    required this.onSendPhoto,
     required this.onSend,
   });
 
   final String? selectedUserId;
   final String? selectedCarId;
-  final String selectedTopic;
   final String searchQuery;
   final bool slideForward;
   final TextEditingController replyController;
   final ValueChanged<String?> onUserChanged;
   final VoidCallback onBack;
   final ValueChanged<String?> onCarChanged;
-  final ValueChanged<String> onTopicChanged;
   final ValueChanged<String> onSearchChanged;
-  final ValueChanged<String> onQuickMessage;
   final ValueChanged<ServiceDocument> onSendDocument;
+  final VoidCallback onSendPhoto;
   final VoidCallback onSend;
 
   @override
@@ -1145,13 +2040,11 @@ class _OwnerChatTab extends StatelessWidget {
               key: ValueKey('owner-chat-${selectedCustomer.id}'),
               customer: selectedCustomer,
               selectedCarId: selectedCarId,
-              selectedTopic: selectedTopic,
               replyController: replyController,
               onBack: onBack,
               onCarChanged: onCarChanged,
-              onTopicChanged: onTopicChanged,
-              onQuickMessage: onQuickMessage,
               onSendDocument: onSendDocument,
+              onSendPhoto: onSendPhoto,
               onSend: onSend,
             ),
     );
@@ -1346,25 +2239,21 @@ class _OwnerChatWindow extends StatelessWidget {
     super.key,
     required this.customer,
     required this.selectedCarId,
-    required this.selectedTopic,
     required this.replyController,
     required this.onBack,
     required this.onCarChanged,
-    required this.onTopicChanged,
-    required this.onQuickMessage,
     required this.onSendDocument,
+    required this.onSendPhoto,
     required this.onSend,
   });
 
   final GarageUser customer;
   final String? selectedCarId;
-  final String selectedTopic;
   final TextEditingController replyController;
   final VoidCallback onBack;
   final ValueChanged<String?> onCarChanged;
-  final ValueChanged<String> onTopicChanged;
-  final ValueChanged<String> onQuickMessage;
   final ValueChanged<ServiceDocument> onSendDocument;
+  final VoidCallback onSendPhoto;
   final VoidCallback onSend;
 
   @override
@@ -1382,41 +2271,6 @@ class _OwnerChatWindow extends StatelessWidget {
     final documents = documentCars
         .expand((car) => controller.documentsForCar(car.id))
         .toList();
-    const topics = [
-      'Garage update',
-      'Quotation',
-      'Estimation',
-      'Bills',
-      'Pickup',
-      'Payments',
-    ];
-    const quickTemplates = [
-      (
-        label: 'Payment reminder',
-        message:
-            'Payment reminder: your service bill is pending. Please complete the payment so we can close the job.',
-      ),
-      (
-        label: 'Service complete',
-        message:
-            'Service completion update: your car service is complete and the final quality check is done.',
-      ),
-      (
-        label: 'Pickup reminder',
-        message:
-            'Pickup reminder: please confirm the pickup address and preferred time for your vehicle handover.',
-      ),
-      (
-        label: 'Quote approval',
-        message:
-            'Quote approval needed: please review the shared quotation and approve it to begin the next service step.',
-      ),
-      (
-        label: 'Bill shared',
-        message:
-            'Bill shared: the invoice PDF is attached here for your records and WhatsApp sharing.',
-      ),
-    ];
 
     return Column(
       children: [
@@ -1459,64 +2313,13 @@ class _OwnerChatWindow extends StatelessWidget {
                     ],
                   ),
                 ),
-                PopupMenuButton<String?>(
-                  initialValue: selectedCarId,
-                  tooltip: 'Filter car',
-                  onSelected: onCarChanged,
-                  itemBuilder: (context) => [
-                    const PopupMenuItem<String?>(
-                      value: null,
-                      child: Text('All cars'),
-                    ),
-                    ...customerCars.map(
-                      (car) => PopupMenuItem<String?>(
-                        value: car.id,
-                        child: Text('${car.carNumber} - ${car.model}'),
-                      ),
-                    ),
-                  ],
-                  icon: const Icon(Icons.directions_car_rounded),
-                ),
               ],
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: topics
-                .map(
-                  (topic) => ChoiceChip(
-                    label: Text(topic),
-                    selected: selectedTopic == topic,
-                    onSelected: (_) => onTopicChanged(topic),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-        SizedBox(
-          height: 42,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            scrollDirection: Axis.horizontal,
-            itemCount: quickTemplates.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              final template = quickTemplates[index];
-              return ActionChip(
-                avatar: const Icon(Icons.bolt_rounded, size: 16),
-                label: Text(template.label),
-                onPressed: () => onQuickMessage(template.message),
-              );
-            },
-          ),
-        ),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
             itemCount: messages.length,
             itemBuilder: (context, index) {
               final message = messages[index];
@@ -1548,21 +2351,48 @@ class _OwnerChatWindow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                PopupMenuButton<ServiceDocument>(
-                  tooltip: 'Send document',
-                  enabled: documents.isNotEmpty,
-                  onSelected: onSendDocument,
-                  itemBuilder: (context) => documents
-                      .map(
-                        (document) => PopupMenuItem<ServiceDocument>(
-                          value: document,
-                          child: Text(
-                            '${document.type.label} ${document.title}',
-                          ),
+                PopupMenuButton<Object>(
+                  tooltip: 'Attach',
+                  onSelected: (value) {
+                    if (value is ServiceDocument) {
+                      onSendDocument(value);
+                    } else if (value == 'photo') {
+                      onSendPhoto();
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem<String>(
+                      value: 'photo',
+                      child: const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.photo_library_outlined),
+                        title: Text('Gallery Photo'),
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    if (documents.isEmpty)
+                      const PopupMenuItem<Object>(
+                        enabled: false,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.receipt_long_outlined),
+                          title: Text('No Document Library files'),
                         ),
                       )
-                      .toList(),
-                  icon: const Icon(Icons.receipt_long_outlined),
+                    else
+                      ...documents.map(
+                        (document) => PopupMenuItem<ServiceDocument>(
+                          value: document,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.receipt_long_outlined),
+                            title: Text(document.title),
+                            subtitle: Text(document.type.label),
+                          ),
+                        ),
+                      ),
+                  ],
+                  icon: const Icon(Icons.attach_file_rounded),
                 ),
                 const SizedBox(width: 8),
                 Expanded(

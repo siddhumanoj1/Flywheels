@@ -24,15 +24,25 @@ abstract final class WhatsappShareService {
     required String message,
   }) async {
     try {
-      final result = await SharePlus.instance.share(
-        ShareParams(
-          text: message,
-          subject: fileName,
-          files: [XFile(filePath, mimeType: 'application/pdf', name: fileName)],
-          fileNameOverrides: [fileName],
-          downloadFallbackEnabled: true,
-        ),
-      );
+      final result = await SharePlus.instance
+          .share(
+            ShareParams(
+              text: message,
+              subject: fileName,
+              files: [
+                XFile(filePath, mimeType: 'application/pdf', name: fileName),
+              ],
+              fileNameOverrides: [fileName],
+              downloadFallbackEnabled: true,
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 4),
+            onTimeout: () => const ShareResult(
+              'share-sheet-opened',
+              ShareResultStatus.success,
+            ),
+          );
       return result.status != ShareResultStatus.dismissed;
     } catch (_) {
       return false;

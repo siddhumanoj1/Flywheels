@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class BrandLogo extends StatelessWidget {
-  const BrandLogo({super.key, this.size = 40});
+  const BrandLogo({super.key, this.size = 44});
 
   final double size;
 
@@ -53,7 +53,7 @@ class BrandWordmark extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: center ? TextAlign.center : TextAlign.start,
           style: titleStyle?.copyWith(
-            color: titleColor,
+            color: Colors.red,
             fontWeight: FontWeight.w900,
             fontStyle: FontStyle.italic,
             letterSpacing: 0,

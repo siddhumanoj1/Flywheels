@@ -27,8 +27,6 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   final _chatMessageController = TextEditingController();
   int _currentIndex = 0;
   bool _pickingProfilePhoto = false;
-  String _chatTopic = 'General enquiry';
-  String? _chatCarId;
 
   @override
   void dispose() {
@@ -416,9 +414,12 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   ) async {
     final controller = FlywheelsScope.read(context);
     final addressController = TextEditingController();
-    DateTime pickupTime = DateTime.now().add(const Duration(hours: 3));
-    bool locationAccessGranted = false;
+    final existingJob = controller.latestJobForCar(car.id);
+    DateTime pickupTime =
+        existingJob?.pickupTime ?? DateTime.now().add(const Duration(hours: 3));
+    bool locationAccessGranted = existingJob?.locationAccessGranted ?? false;
     bool mapsLocationSelected = false;
+    addressController.text = existingJob?.pickupAddress ?? '';
 
     await showModalBottomSheet<void>(
       context: context,
@@ -438,7 +439,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Schedule pickup',
+                    existingJob?.pickupRequired == true
+                        ? 'Reschedule pickup'
+                        : 'Schedule pickup',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
@@ -584,7 +587,11 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                           );
                         }
                       },
-                      child: const Text('Schedule pickup'),
+                      child: Text(
+                        existingJob?.pickupRequired == true
+                            ? 'Reschedule pickup'
+                            : 'Schedule pickup',
+                      ),
                     ),
                   ),
                 ],
@@ -745,13 +752,19 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         .where((item) => item.id == document.carId)
         .firstOrNull;
     final customer = car == null ? null : controller.customerForCar(car.id);
-    final export = await DocumentPdfExportService.exportDocument(
-      document: document,
-      car: car,
-      customer: customer,
-    );
-    if (!mounted) return;
-    _showMessage('${document.title} PDF saved to ${export.filePath}');
+    _showMessage('Preparing PDF download...');
+    try {
+      final export = await DocumentPdfExportService.exportDocument(
+        document: document,
+        car: car,
+        customer: customer,
+      );
+      if (!mounted) return;
+      _showMessage('${document.title} PDF saved to ${export.filePath}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF download failed: $error');
+    }
   }
 
   Future<void> _shareDocumentOnWhatsapp(ServiceDocument document) async {
@@ -760,23 +773,30 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         .where((item) => item.id == document.carId)
         .firstOrNull;
     final customer = car == null ? null : controller.customerForCar(car.id);
-    final export = await DocumentPdfExportService.exportDocument(
-      document: document,
-      car: car,
-      customer: customer,
-    );
-    final message = controller.buildDocumentWhatsappMessage(document);
-    final sent = await WhatsappShareService.sharePdf(
-      filePath: export.filePath,
-      fileName: export.fileName,
-      message: message,
-    );
-    if (!mounted) return;
-    _showMessage(
-      sent
-          ? 'PDF ready for WhatsApp sharing.'
-          : 'PDF saved. WhatsApp share sheet could not be opened.',
-    );
+    _showMessage('Preparing PDF for sharing...');
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    try {
+      final export = await DocumentPdfExportService.exportDocument(
+        document: document,
+        car: car,
+        customer: customer,
+      );
+      final message = controller.buildDocumentWhatsappMessage(document);
+      final sent = await WhatsappShareService.sharePdf(
+        filePath: export.filePath,
+        fileName: export.fileName,
+        message: message,
+      );
+      if (!mounted) return;
+      _showMessage(
+        sent
+            ? 'PDF ready for sharing.'
+            : 'PDF saved. Share sheet could not be opened.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('PDF share failed: $error');
+    }
   }
 
   void _showMessage(String message) {
@@ -914,20 +934,11 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     final controller = FlywheelsScope.read(context);
     if (_chatMessageController.text.trim().isEmpty) return;
     controller.sendCustomerMessage(
-      topic: _chatTopic,
+      topic: 'General enquiry',
       message: _chatMessageController.text,
-      carId: _chatCarId,
+      carId: controller.activeCar?.id,
     );
     setState(() => _chatMessageController.clear());
-  }
-
-  void _insertQuickMessage(String message) {
-    setState(() {
-      _chatMessageController.text = message;
-      _chatMessageController.selection = TextSelection.collapsed(
-        offset: _chatMessageController.text.length,
-      );
-    });
   }
 
   Future<void> _sendChatPhoto(BuildContext context) async {
@@ -936,13 +947,88 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       imageQuality: 85,
     );
     if (image == null || !context.mounted) return;
-    FlywheelsScope.read(context).sendCustomerMessage(
-      topic: _chatTopic,
+    final controller = FlywheelsScope.read(context);
+    controller.sendCustomerMessage(
+      topic: 'Photo',
       message: _chatMessageController.text.trim(),
-      carId: _chatCarId,
+      carId: controller.activeCar?.id,
       attachmentPath: image.path,
     );
     setState(() => _chatMessageController.clear());
+  }
+
+  Future<void> _sendChatDocument(BuildContext context) async {
+    final controller = FlywheelsScope.read(context);
+    final documents = controller.documents.toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+
+    if (documents.isEmpty) {
+      _showMessage('No documents available in Document Library.');
+      return;
+    }
+
+    final document = await showModalBottomSheet<ServiceDocument>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: ListView.separated(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            itemCount: documents.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final document = documents[index];
+              final car = controller.cars
+                  .where((item) => item.id == document.carId)
+                  .firstOrNull;
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: Text(document.title),
+                subtitle: Text(
+                  car == null
+                      ? document.type.label
+                      : '${document.type.label} | ${car.carNumber}',
+                ),
+                trailing: const Icon(Icons.attach_file_rounded),
+                onTap: () => Navigator.of(sheetContext).pop(document),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (document == null || !mounted) return;
+
+    final car = controller.cars
+        .where((item) => item.id == document.carId)
+        .firstOrNull;
+    final customer = car == null ? null : controller.customerForCar(car.id);
+    _showMessage('Preparing document attachment...');
+
+    try {
+      final export = await DocumentPdfExportService.exportDocument(
+        document: document,
+        car: car,
+        customer: customer,
+      );
+      if (!mounted) return;
+      controller.sendCustomerMessage(
+        topic: document.type.label,
+        message: _chatMessageController.text.trim().isEmpty
+            ? '${document.type.label} ${document.title} shared.'
+            : _chatMessageController.text,
+        carId: document.carId.isEmpty ? null : document.carId,
+        attachmentPath: export.filePath,
+      );
+      setState(() => _chatMessageController.clear());
+      _showMessage('${document.title} attached to chat.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('Document attachment failed: $error');
+    }
   }
 
   @override
@@ -956,7 +1042,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       appBar: AppBar(
         title: Row(
           children: [
-            const BrandLogo(size: 30),
+            const BrandLogo(size: 33),
             const SizedBox(width: 14),
             Expanded(
               child: _currentIndex == 0
@@ -971,7 +1057,8 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         Text(
-                          controller.session?.user.name.toUpperCase() ?? 'CUSTOMER',
+                          controller.session?.user.name.toUpperCase() ??
+                              'CUSTOMER',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall
@@ -1021,13 +1108,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                 ),
                 _CustomerChatTab(
                   chatMessageController: _chatMessageController,
-                  chatTopic: _chatTopic,
-                  chatCarId: _chatCarId,
-                  onTopicChanged: (value) => setState(() => _chatTopic = value),
-                  onCarChanged: (value) => setState(() => _chatCarId = value),
-                  onQuickMessage: _insertQuickMessage,
                   onSend: () => _sendChat(context),
                   onSendPhoto: () => _sendChatPhoto(context),
+                  onSendDocument: () => _sendChatDocument(context),
                 ),
                 _CustomerProfileTab(
                   onAddCar: () => _showAddCarSheet(context),
@@ -1466,6 +1549,25 @@ class _CustomerHomeTab extends StatelessWidget {
     final job = activeCar == null
         ? null
         : controller.latestJobForCar(activeCar!.id);
+    final workflowState = job?.workflowState ?? CarWorkflowState.registered;
+    final transitInProgress = workflowState.isTransit;
+    final hasGarageWorkflow = workflowState.isInGarage;
+    final photos = activeCar == null
+        ? const <GaragePhotoUpdate>[]
+        : controller.photoUpdatesForCar(activeCar!.id);
+    final documents = activeCar == null
+        ? const <ServiceDocument>[]
+        : controller.documentsForCar(activeCar!.id);
+    final pendingDocument = documents
+        .where((document) => document.approvalState == ApprovalState.pending)
+        .firstOrNull;
+    final unpaidInvoice = documents
+        .where(
+          (document) =>
+              document.type == DocumentType.invoice &&
+              document.paymentState != PaymentState.paid,
+        )
+        .firstOrNull;
 
     return ListView(
       key: const PageStorageKey('customer-home'),
@@ -1477,50 +1579,637 @@ class _CustomerHomeTab extends StatelessWidget {
             subtitle: 'Add a car or choose one above to view its timeline.',
           ),
         if (activeCar != null) ...[
-          if (job != null) _CompactTimelineCard(job: job),
+          _CustomerVehicleOverview(
+            car: activeCar!,
+            job: job,
+            documents: documents,
+            photoCount: photos.length,
+          ),
+          const SizedBox(height: 12),
+          _CustomerNextStepCard(
+            car: activeCar!,
+            job: job,
+            pendingDocument: pendingDocument,
+            unpaidInvoice: unpaidInvoice,
+            onSchedulePickup: onSchedulePickup,
+            onRequestQuotation: onRequestQuotation,
+            onOpenBills: onOpenBills,
+            onOpenChat: onOpenChat,
+          ),
+          const SizedBox(height: 12),
+          if (transitInProgress && job != null) _PickupStatusCard(job: job),
+          if (hasGarageWorkflow && job != null) _CompactTimelineCard(job: job),
           if (job == null)
             _EmptyStateCard(
               title: activeCar!.carNumber,
-              subtitle: 'No active service timeline yet.',
+              subtitle:
+                  'Registered in your garage account. Schedule pickup when you are ready.',
             ),
           const SizedBox(height: 12),
-          GearboxActionGrid(
-            children: [
-              AutomotiveControlButton(
-                icon: Icons.receipt_long_outlined,
-                label: 'Quote',
-                active: true,
-                onPressed: () => onRequestQuotation(activeCar!),
-              ),
-              AutomotiveControlButton(
-                icon: Icons.local_shipping_outlined,
-                label: 'Pickup',
-                onPressed: () => onSchedulePickup(activeCar!),
-              ),
-              AutomotiveControlButton(
-                icon: Icons.photo_camera_outlined,
-                label: 'Images',
-                onPressed: () => onRequestImages(activeCar!),
-              ),
-              AutomotiveControlButton(
-                icon: Icons.chat_bubble_outline_rounded,
-                label: 'Chat',
-                onPressed: onOpenChat,
-              ),
-              AutomotiveControlButton(
-                icon: Icons.history_rounded,
-                label: 'History',
-                onPressed: () => onOpenHistory(activeCar!),
-              ),
-              AutomotiveControlButton(
-                icon: Icons.receipt_long_rounded,
-                label: 'Bills',
-                onPressed: onOpenBills,
-              ),
-            ],
+          Text(
+            'Available actions',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
+          const SizedBox(height: 8),
+          GearboxActionGrid(
+            children: _customerActions(
+              activeCar!,
+              job,
+              transitInProgress: transitInProgress,
+            ),
+          ),
+          if (documents.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _CustomerDocumentDigest(
+              documents: documents,
+              onOpenBills: onOpenBills,
+            ),
+          ],
+          if (photos.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _GaragePhotoFeed(photos: photos),
+          ],
         ],
       ],
+    );
+  }
+
+  List<Widget> _customerActions(
+    CarProfile car,
+    ServiceJob? job, {
+    required bool transitInProgress,
+  }) {
+    if (job == null) {
+      return [
+        AutomotiveControlButton(
+          icon: Icons.local_shipping_outlined,
+          label: 'Pickup',
+          active: true,
+          onPressed: () => onSchedulePickup(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.history_rounded,
+          label: 'History',
+          onPressed: () => onOpenHistory(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_rounded,
+          label: 'Bills',
+          onPressed: onOpenBills,
+        ),
+      ];
+    }
+
+    if (job.workflowState == CarWorkflowState.onRoad) {
+      return [
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_outlined,
+          label: 'Quote',
+          active: true,
+          onPressed: () => onRequestQuotation(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.local_shipping_outlined,
+          label: 'Pickup',
+          onPressed: () => onSchedulePickup(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'Chat',
+          onPressed: onOpenChat,
+        ),
+        AutomotiveControlButton(
+          icon: Icons.history_rounded,
+          label: 'History',
+          onPressed: () => onOpenHistory(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_rounded,
+          label: 'Bills',
+          onPressed: onOpenBills,
+        ),
+      ];
+    }
+
+    if (transitInProgress) {
+      return [
+        AutomotiveControlButton(
+          icon: Icons.schedule_rounded,
+          label: 'Reschedule',
+          active: true,
+          onPressed: () => onSchedulePickup(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'Chat',
+          onPressed: onOpenChat,
+        ),
+        AutomotiveControlButton(
+          icon: Icons.history_rounded,
+          label: 'History',
+          onPressed: () => onOpenHistory(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_rounded,
+          label: 'Bills',
+          onPressed: onOpenBills,
+        ),
+      ];
+    }
+
+    final workflowState = job.workflowState;
+    final canRequestQuote =
+        workflowState == CarWorkflowState.received ||
+        workflowState == CarWorkflowState.underInspection;
+    final canRequestImages =
+        workflowState == CarWorkflowState.underInspection ||
+        workflowState == CarWorkflowState.workInProgress;
+    final readyForDelivery = workflowState == CarWorkflowState.readyForDelivery;
+    return [
+      AutomotiveControlButton(
+        icon: Icons.receipt_long_outlined,
+        label: 'Quote',
+        active: canRequestQuote,
+        onPressed: canRequestQuote ? () => onRequestQuotation(car) : null,
+      ),
+      AutomotiveControlButton(
+        icon: Icons.photo_camera_outlined,
+        label: 'Images',
+        active: canRequestImages,
+        onPressed: canRequestImages ? () => onRequestImages(car) : null,
+      ),
+      AutomotiveControlButton(
+        icon: Icons.chat_bubble_outline_rounded,
+        label: 'Chat',
+        onPressed: onOpenChat,
+      ),
+      AutomotiveControlButton(
+        icon: Icons.history_rounded,
+        label: 'History',
+        onPressed: () => onOpenHistory(car),
+      ),
+      AutomotiveControlButton(
+        icon: Icons.receipt_long_rounded,
+        label: 'Bills',
+        active: readyForDelivery,
+        onPressed: onOpenBills,
+      ),
+      AutomotiveControlButton(
+        icon: Icons.local_shipping_outlined,
+        label: 'Delivery',
+        active: readyForDelivery,
+        onPressed: readyForDelivery ? () => onSchedulePickup(car) : null,
+      ),
+    ];
+  }
+}
+
+class _CustomerVehicleOverview extends StatelessWidget {
+  const _CustomerVehicleOverview({
+    required this.car,
+    required this.job,
+    required this.documents,
+    required this.photoCount,
+  });
+
+  final CarProfile car;
+  final ServiceJob? job;
+  final List<ServiceDocument> documents;
+  final int photoCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = job == null ? 'Registered' : job!.workflowState.label;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppPalette.black,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          AppImage(
+            path: car.imageUrl,
+            width: 92,
+            height: 72,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  car.carNumber,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(color: AppPalette.white),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  car.model,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppPalette.white.withValues(alpha: 0.74),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _CustomerOverviewPill(label: status),
+                    _CustomerOverviewPill(label: '${documents.length} docs'),
+                    _CustomerOverviewPill(label: '$photoCount photos'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerOverviewPill extends StatelessWidget {
+  const _CustomerOverviewPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppPalette.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: AppPalette.white.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: AppPalette.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerNextStepCard extends StatelessWidget {
+  const _CustomerNextStepCard({
+    required this.car,
+    required this.job,
+    required this.pendingDocument,
+    required this.unpaidInvoice,
+    required this.onSchedulePickup,
+    required this.onRequestQuotation,
+    required this.onOpenBills,
+    required this.onOpenChat,
+  });
+
+  final CarProfile car;
+  final ServiceJob? job;
+  final ServiceDocument? pendingDocument;
+  final ServiceDocument? unpaidInvoice;
+  final ValueChanged<CarProfile> onSchedulePickup;
+  final ValueChanged<CarProfile> onRequestQuotation;
+  final VoidCallback onOpenBills;
+  final VoidCallback onOpenChat;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _nextStepData();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppPalette.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(data.icon, color: AppPalette.red),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    data.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    data.subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              tooltip: data.tooltip,
+              onPressed: data.onTap,
+              icon: const Icon(Icons.arrow_forward_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  _CustomerNextStepData _nextStepData() {
+    if (job == null) {
+      return _CustomerNextStepData(
+        icon: Icons.local_shipping_outlined,
+        title: 'Schedule pickup',
+        subtitle: 'Your car is registered but not in the garage yet.',
+        tooltip: 'Schedule pickup',
+        onTap: () => onSchedulePickup(car),
+      );
+    }
+    final workflowState = job!.workflowState;
+    if (workflowState.isTransit) {
+      final isDelivery =
+          workflowState == CarWorkflowState.deliveryRequested ||
+          workflowState == CarWorkflowState.deliveryAssigned;
+      return _CustomerNextStepData(
+        icon: Icons.schedule_rounded,
+        title: job!.pickupState == PickupState.requested
+            ? isDelivery
+                  ? 'Delivery requested'
+                  : 'Pickup requested'
+            : isDelivery
+            ? 'Delivery person assigned'
+            : 'Pickup person assigned',
+        subtitle: job!.pickupPersonName == null
+            ? 'Garage will assign a ${isDelivery ? 'delivery' : 'pickup'} person soon. You can reschedule if needed.'
+            : '${job!.pickupPersonName} will ${isDelivery ? 'deliver' : 'pick up'} the car at ${formatDateTime(job!.pickupTime)}.',
+        tooltip: 'Reschedule pickup',
+        onTap: () => onSchedulePickup(car),
+      );
+    }
+    if (pendingDocument != null) {
+      return _CustomerNextStepData(
+        icon: Icons.request_quote_rounded,
+        title: 'Review ${pendingDocument!.type.label}',
+        subtitle: '${pendingDocument!.title} is waiting for your approval.',
+        tooltip: 'Open documents',
+        onTap: onOpenBills,
+      );
+    }
+    if (unpaidInvoice != null) {
+      return _CustomerNextStepData(
+        icon: Icons.payments_rounded,
+        title: 'Invoice pending',
+        subtitle: '${unpaidInvoice!.title} is ready in your document library.',
+        tooltip: 'Open invoice',
+        onTap: onOpenBills,
+      );
+    }
+    if (workflowState == CarWorkflowState.onRoad) {
+      return _CustomerNextStepData(
+        icon: Icons.route_rounded,
+        title: 'On-Road',
+        subtitle:
+            'Your car is back with you. You can request a quote or schedule pickup anytime.',
+        tooltip: 'Request quote',
+        onTap: () => onRequestQuotation(car),
+      );
+    }
+    if (workflowState == CarWorkflowState.underInspection) {
+      return _CustomerNextStepData(
+        icon: Icons.search_rounded,
+        title: 'Inspection in progress',
+        subtitle:
+            'The garage can share photos and prepare quotation or job card.',
+        tooltip: 'Open chat',
+        onTap: onOpenChat,
+      );
+    }
+    if (workflowState == CarWorkflowState.workInProgress) {
+      return _CustomerNextStepData(
+        icon: Icons.photo_camera_outlined,
+        title: 'Work is happening',
+        subtitle: 'Track photos and messages while the service is in progress.',
+        tooltip: 'Open chat',
+        onTap: onOpenChat,
+      );
+    }
+    return _CustomerNextStepData(
+      icon: Icons.task_alt_rounded,
+      title: 'Service status: ${workflowState.label}',
+      subtitle: 'Documents, photos, and chat updates are available below.',
+      tooltip: 'Open bills',
+      onTap: onOpenBills,
+    );
+  }
+}
+
+class _CustomerNextStepData {
+  const _CustomerNextStepData({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String tooltip;
+  final VoidCallback onTap;
+}
+
+class _CustomerDocumentDigest extends StatelessWidget {
+  const _CustomerDocumentDigest({
+    required this.documents,
+    required this.onOpenBills,
+  });
+
+  final List<ServiceDocument> documents;
+  final VoidCallback onOpenBills;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = documents.first;
+    final pending = documents
+        .where((document) => document.approvalState == ApprovalState.pending)
+        .length;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.folder_copy_outlined),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Documents and bills',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Latest ${latest.type.label} ${latest.title} | $pending approvals pending',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            IconButton.outlined(
+              tooltip: 'Open document library',
+              onPressed: onOpenBills,
+              icon: const Icon(Icons.arrow_forward_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PickupStatusCard extends StatelessWidget {
+  const _PickupStatusCard({required this.job});
+
+  final ServiceJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = job.workflowState;
+    final isDelivery =
+        state == CarWorkflowState.deliveryRequested ||
+        state == CarWorkflowState.deliveryAssigned;
+    final assignee = job.pickupPersonName == null
+        ? 'Garage will assign a ${isDelivery ? 'delivery' : 'pickup'} person'
+        : '${job.pickupPersonName}'
+              '${job.pickupPersonPhone == null || job.pickupPersonPhone!.isEmpty ? '' : ' | ${job.pickupPersonPhone}'}';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.local_shipping_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isDelivery
+                        ? 'Delivery ${job.pickupState.label}'
+                        : 'Pickup ${job.pickupState.label}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                LedIndicator(active: job.pickupState == PickupState.assigned),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Slot ${formatDateTime(job.pickupTime)}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(assignee, style: Theme.of(context).textTheme.bodySmall),
+            if (job.pickupAddress != null && job.pickupAddress!.isNotEmpty)
+              Text(
+                job.pickupAddress!,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GaragePhotoFeed extends StatelessWidget {
+  const _GaragePhotoFeed({required this.photos});
+
+  final List<GaragePhotoUpdate> photos;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.photo_library_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Live photo updates',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...photos
+                .take(4)
+                .map(
+                  (photo) => Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppPalette.soft,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        AppImage(
+                          path: photo.imagePath,
+                          width: 72,
+                          height: 56,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                photo.caption,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                formatDateTime(photo.createdAt),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1778,23 +2467,15 @@ class _CustomerDocumentLibraryTile extends StatelessWidget {
 class _CustomerChatTab extends StatelessWidget {
   const _CustomerChatTab({
     required this.chatMessageController,
-    required this.chatTopic,
-    required this.chatCarId,
-    required this.onTopicChanged,
-    required this.onCarChanged,
-    required this.onQuickMessage,
     required this.onSend,
     required this.onSendPhoto,
+    required this.onSendDocument,
   });
 
   final TextEditingController chatMessageController;
-  final String chatTopic;
-  final String? chatCarId;
-  final ValueChanged<String> onTopicChanged;
-  final ValueChanged<String?> onCarChanged;
-  final ValueChanged<String> onQuickMessage;
   final VoidCallback onSend;
   final VoidCallback onSendPhoto;
+  final VoidCallback onSendDocument;
 
   @override
   Widget build(BuildContext context) {
@@ -1803,79 +2484,12 @@ class _CustomerChatTab extends StatelessWidget {
     final user = controller.session!.user;
     final owner = controller.ownerUser;
     final messages = controller.conversationForUser(userId);
-    const topics = [
-      'General enquiry',
-      'Car related query',
-      'Payment query',
-      'Quote approval',
-      'Pickup',
-    ];
-    const quickTemplates = [
-      (
-        label: 'Approve quote',
-        message:
-            'Quote approval: I have reviewed the quotation and approve the recommended work.',
-      ),
-      (
-        label: 'Need bill PDF',
-        message:
-            'Please share the latest bill PDF here and on WhatsApp for my records.',
-      ),
-      (
-        label: 'Pickup reminder',
-        message:
-            'Pickup reminder: please confirm the pickup slot and driver details.',
-      ),
-      (
-        label: 'Service complete?',
-        message:
-            'Is the service completed? Please share the final status and delivery timing.',
-      ),
-      (
-        label: 'Payment update',
-        message:
-            'Payment update: I will complete the pending payment and share confirmation shortly.',
-      ),
-    ];
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: topics
-                .map(
-                  (topic) => ChoiceChip(
-                    label: Text(topic),
-                    selected: chatTopic == topic,
-                    onSelected: (_) => onTopicChanged(topic),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-        SizedBox(
-          height: 42,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            itemCount: quickTemplates.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              final template = quickTemplates[index];
-              return ActionChip(
-                avatar: const Icon(Icons.bolt_rounded, size: 16),
-                label: Text(template.label),
-                onPressed: () => onQuickMessage(template.message),
-              );
-            },
-          ),
-        ),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             itemCount: messages.length,
             itemBuilder: (context, index) {
               final message = messages[index];
@@ -1906,28 +2520,34 @@ class _CustomerChatTab extends StatelessWidget {
             ),
             child: Row(
               children: [
-                IconButton.outlined(
-                  onPressed: onSendPhoto,
-                  icon: const Icon(Icons.photo_outlined),
-                ),
-                const SizedBox(width: 8),
-                PopupMenuButton<String?>(
-                  initialValue: chatCarId,
-                  tooltip: 'Select car',
-                  onSelected: onCarChanged,
-                  itemBuilder: (context) => [
-                    const PopupMenuItem<String?>(
-                      value: null,
-                      child: Text('All cars'),
+                PopupMenuButton<String>(
+                  tooltip: 'Attach',
+                  onSelected: (value) {
+                    if (value == 'document') {
+                      onSendDocument();
+                    } else if (value == 'photo') {
+                      onSendPhoto();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'document',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.receipt_long_outlined),
+                        title: Text('Document Library'),
+                      ),
                     ),
-                    ...controller.cars.map(
-                      (car) => PopupMenuItem<String?>(
-                        value: car.id,
-                        child: Text('${car.carNumber} - ${car.model}'),
+                    PopupMenuItem(
+                      value: 'photo',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.photo_library_outlined),
+                        title: Text('Gallery Photo'),
                       ),
                     ),
                   ],
-                  icon: const Icon(Icons.directions_car_rounded),
+                  icon: const Icon(Icons.attach_file_rounded),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -1935,10 +2555,8 @@ class _CustomerChatTab extends StatelessWidget {
                     controller: chatMessageController,
                     minLines: 1,
                     maxLines: 4,
-                    decoration: InputDecoration(
-                      hintText: chatCarId == null
-                          ? 'Message the garage...'
-                          : 'Message about selected car...',
+                    decoration: const InputDecoration(
+                      hintText: 'Message the garage...',
                     ),
                   ),
                 ),
