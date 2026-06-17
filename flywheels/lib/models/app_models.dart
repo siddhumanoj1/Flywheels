@@ -277,6 +277,169 @@ class CarProfile {
   }
 }
 
+enum CarSaleMediaType { image, video }
+
+extension CarSaleMediaTypeX on CarSaleMediaType {
+  String get label => this == CarSaleMediaType.image ? 'Photo' : 'Video';
+}
+
+enum CarSaleStatus { pendingApproval, active, sold, rejected }
+
+extension CarSaleStatusX on CarSaleStatus {
+  String get label {
+    switch (this) {
+      case CarSaleStatus.pendingApproval:
+        return 'Pending Approval';
+      case CarSaleStatus.active:
+        return 'Live';
+      case CarSaleStatus.sold:
+        return 'Sold';
+      case CarSaleStatus.rejected:
+        return 'Rejected';
+    }
+  }
+}
+
+class CarSaleMedia {
+  const CarSaleMedia({required this.path, required this.type, this.caption});
+
+  final String path;
+  final CarSaleMediaType type;
+  final String? caption;
+}
+
+class CarSaleListing {
+  const CarSaleListing({
+    required this.id,
+    required this.sellerUserId,
+    required this.sellerName,
+    required this.title,
+    required this.model,
+    required this.fuelType,
+    required this.year,
+    required this.price,
+    required this.odometerKm,
+    required this.transmission,
+    required this.location,
+    required this.description,
+    required this.media,
+    required this.createdAt,
+    this.status = CarSaleStatus.active,
+    this.previousPrice,
+    this.returnAssurance = false,
+    this.bodyType = 'SUV',
+    this.color = 'White',
+    this.features = const [],
+    this.seats = 5,
+    this.ownerCount = 1,
+    this.rto = 'TS',
+    this.safetyRating = 'Not rated',
+    this.discountPercent = 0,
+    this.carNumber,
+    this.contactPhone,
+    this.postedByOwner = false,
+    this.isGarageVerified = false,
+  });
+
+  final String id;
+  final String sellerUserId;
+  final String sellerName;
+  final String title;
+  final String model;
+  final String fuelType;
+  final int year;
+  final double price;
+  final double? previousPrice;
+  final int odometerKm;
+  final String transmission;
+  final String location;
+  final String description;
+  final List<CarSaleMedia> media;
+  final DateTime createdAt;
+  final CarSaleStatus status;
+  final bool returnAssurance;
+  final String bodyType;
+  final String color;
+  final List<String> features;
+  final int seats;
+  final int ownerCount;
+  final String rto;
+  final String safetyRating;
+  final int discountPercent;
+  final String? carNumber;
+  final String? contactPhone;
+  final bool postedByOwner;
+  final bool isGarageVerified;
+
+  CarSaleMedia? get primaryMedia {
+    if (media.isEmpty) return null;
+    final image = media.where((item) => item.type == CarSaleMediaType.image);
+    return image.isEmpty ? media.first : image.first;
+  }
+
+  int get videoCount =>
+      media.where((item) => item.type == CarSaleMediaType.video).length;
+
+  CarSaleListing copyWith({
+    String? title,
+    String? model,
+    String? fuelType,
+    int? year,
+    double? price,
+    double? previousPrice,
+    int? odometerKm,
+    String? transmission,
+    String? location,
+    String? description,
+    List<CarSaleMedia>? media,
+    CarSaleStatus? status,
+    bool? returnAssurance,
+    String? bodyType,
+    String? color,
+    List<String>? features,
+    int? seats,
+    int? ownerCount,
+    String? rto,
+    String? safetyRating,
+    int? discountPercent,
+    String? carNumber,
+    String? contactPhone,
+    bool? isGarageVerified,
+  }) {
+    return CarSaleListing(
+      id: id,
+      sellerUserId: sellerUserId,
+      sellerName: sellerName,
+      title: title ?? this.title,
+      model: model ?? this.model,
+      fuelType: fuelType ?? this.fuelType,
+      year: year ?? this.year,
+      price: price ?? this.price,
+      previousPrice: previousPrice ?? this.previousPrice,
+      odometerKm: odometerKm ?? this.odometerKm,
+      transmission: transmission ?? this.transmission,
+      location: location ?? this.location,
+      description: description ?? this.description,
+      media: media ?? this.media,
+      createdAt: createdAt,
+      status: status ?? this.status,
+      returnAssurance: returnAssurance ?? this.returnAssurance,
+      bodyType: bodyType ?? this.bodyType,
+      color: color ?? this.color,
+      features: features ?? this.features,
+      seats: seats ?? this.seats,
+      ownerCount: ownerCount ?? this.ownerCount,
+      rto: rto ?? this.rto,
+      safetyRating: safetyRating ?? this.safetyRating,
+      discountPercent: discountPercent ?? this.discountPercent,
+      carNumber: carNumber ?? this.carNumber,
+      contactPhone: contactPhone ?? this.contactPhone,
+      postedByOwner: postedByOwner,
+      isGarageVerified: isGarageVerified ?? this.isGarageVerified,
+    );
+  }
+}
+
 class ServiceJob {
   const ServiceJob({
     required this.id,
@@ -481,6 +644,21 @@ class CustomerAssetDocument {
   final DateTime? validUntil;
 }
 
+enum ChatChannel { general, buying, selling }
+
+extension ChatChannelX on ChatChannel {
+  String get label {
+    switch (this) {
+      case ChatChannel.general:
+        return 'General';
+      case ChatChannel.buying:
+        return 'Buying';
+      case ChatChannel.selling:
+        return 'Selling';
+    }
+  }
+}
+
 class SupportMessage {
   const SupportMessage({
     required this.id,
@@ -488,6 +666,7 @@ class SupportMessage {
     required this.topic,
     required this.message,
     required this.createdAt,
+    this.channel = ChatChannel.general,
     this.carId,
     this.attachmentPath,
     this.sentByOwner = false,
@@ -500,6 +679,7 @@ class SupportMessage {
   final String topic;
   final String message;
   final DateTime createdAt;
+  final ChatChannel channel;
   final String? carId;
   final String? attachmentPath;
   final bool sentByOwner;
@@ -509,6 +689,7 @@ class SupportMessage {
   SupportMessage copyWith({
     String? topic,
     String? message,
+    ChatChannel? channel,
     String? carId,
     String? attachmentPath,
     bool? sentByOwner,
@@ -521,6 +702,7 @@ class SupportMessage {
       topic: topic ?? this.topic,
       message: message ?? this.message,
       createdAt: createdAt,
+      channel: channel ?? this.channel,
       carId: carId ?? this.carId,
       attachmentPath: attachmentPath ?? this.attachmentPath,
       sentByOwner: sentByOwner ?? this.sentByOwner,

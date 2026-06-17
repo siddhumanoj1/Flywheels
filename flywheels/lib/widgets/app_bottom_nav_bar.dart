@@ -7,11 +7,13 @@ class AppBottomNavItem {
     required this.label,
     required this.icon,
     required this.activeIcon,
+    this.color,
   });
 
   final String label;
   final IconData icon;
   final IconData activeIcon;
+  final Color? color;
 }
 
 class AppBottomNavBar extends StatelessWidget {
@@ -53,16 +55,17 @@ class AppBottomNavBar extends StatelessWidget {
             final badgeCount = index < badgeCounts.length
                 ? badgeCounts[index]
                 : 0;
+            final itemColor = item.color ?? AppPalette.black;
             return Expanded(
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
                 margin: const EdgeInsets.symmetric(horizontal: 4),
                 decoration: BoxDecoration(
-                  color: isActive ? AppPalette.black : Colors.transparent,
+                  color: isActive ? itemColor : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isActive ? AppPalette.black : AppPalette.border,
+                    color: isActive ? itemColor : AppPalette.border,
                   ),
                 ),
                 child: InkWell(
@@ -79,9 +82,7 @@ class AppBottomNavBar extends StatelessWidget {
                             Icon(
                               isActive ? item.activeIcon : item.icon,
                               size: 21,
-                              color: isActive
-                                  ? AppPalette.white
-                                  : AppPalette.black,
+                              color: isActive ? AppPalette.white : itemColor,
                             ),
                             if (badgeCount > 0)
                               Positioned(
@@ -96,9 +97,7 @@ class AppBottomNavBar extends StatelessWidget {
                           item.label,
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
-                                color: isActive
-                                    ? AppPalette.white
-                                    : AppPalette.black,
+                                color: isActive ? AppPalette.white : itemColor,
                                 fontWeight: FontWeight.w700,
                               ),
                         ),

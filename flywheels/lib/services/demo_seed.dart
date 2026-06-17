@@ -47,6 +47,122 @@ abstract final class DemoSeed {
     ),
   ];
 
+  static final saleListings = <CarSaleListing>[
+    CarSaleListing(
+      id: 'sale-1',
+      sellerUserId: ownerUser.id,
+      sellerName: ownerUser.name,
+      title: 'MG Hector 2.0D Sharp',
+      model: 'MG Hector 2.0D Sharp',
+      fuelType: 'Diesel',
+      year: 2022,
+      price: 1690000,
+      odometerKm: 38200,
+      transmission: 'Manual',
+      location: 'Madhapur, Hyderabad',
+      description:
+          'Garage-inspected single-owner SUV with full service records, fresh detailing, and clean tyres.',
+      media: const [
+        CarSaleMedia(
+          path:
+              'https://images.unsplash.com/photo-1590362891991-f776e747a588?auto=format&fit=crop&w=1200&q=80',
+          type: CarSaleMediaType.image,
+          caption: 'Front three-quarter view',
+        ),
+        CarSaleMedia(
+          path: 'garage-video-sale-1.mp4',
+          type: CarSaleMediaType.video,
+          caption: 'Walkaround video',
+        ),
+      ],
+      createdAt: DateTime.now().subtract(const Duration(hours: 6)),
+      returnAssurance: true,
+      bodyType: 'SUV',
+      color: 'White',
+      features: const ['Sunroof', '360 camera', 'Connected car'],
+      seats: 5,
+      ownerCount: 1,
+      rto: 'TS19',
+      safetyRating: '5 star',
+      discountPercent: 4,
+      carNumber: 'TS19F2222',
+      contactPhone: ownerUser.phone,
+      postedByOwner: true,
+      isGarageVerified: true,
+    ),
+    CarSaleListing(
+      id: 'sale-2',
+      sellerUserId: ownerUser.id,
+      sellerName: ownerUser.name,
+      title: 'Hyundai Creta SX',
+      model: 'Hyundai Creta SX',
+      fuelType: 'Petrol',
+      year: 2021,
+      price: 1245000,
+      odometerKm: 45200,
+      transmission: 'Automatic',
+      location: 'Kondapur, Hyderabad',
+      description:
+          'Smooth automatic, owner-maintained, insurance active, and available for inspection at Flywheels Garage.',
+      media: const [
+        CarSaleMedia(
+          path:
+              'https://images.unsplash.com/photo-1553440569-bcc63803a83d?auto=format&fit=crop&w=1200&q=80',
+          type: CarSaleMediaType.image,
+          caption: 'Exterior view',
+        ),
+      ],
+      createdAt: DateTime.now().subtract(const Duration(days: 1)),
+      returnAssurance: true,
+      bodyType: 'SUV',
+      color: 'Black',
+      features: const ['Automatic', 'Touchscreen', 'Reverse camera'],
+      seats: 5,
+      ownerCount: 1,
+      rto: 'TS09',
+      safetyRating: '3 star',
+      discountPercent: 0,
+      carNumber: 'TS09AB9088',
+      contactPhone: ownerUser.phone,
+      postedByOwner: true,
+      isGarageVerified: true,
+    ),
+    CarSaleListing(
+      id: 'sale-3',
+      sellerUserId: customerUser.id,
+      sellerName: customerUser.name,
+      title: 'Honda City ZX',
+      model: 'Honda City ZX',
+      fuelType: 'Petrol',
+      year: 2020,
+      price: 875000,
+      odometerKm: 58300,
+      transmission: 'Manual',
+      location: 'Gachibowli, Hyderabad',
+      description:
+          'Customer-submitted sedan with clean interiors and regular maintenance history.',
+      media: const [
+        CarSaleMedia(
+          path:
+              'https://images.unsplash.com/photo-1619767886558-efdc259cde1a?auto=format&fit=crop&w=1200&q=80',
+          type: CarSaleMediaType.image,
+          caption: 'Customer photo',
+        ),
+      ],
+      createdAt: DateTime.now().subtract(const Duration(days: 2)),
+      status: CarSaleStatus.pendingApproval,
+      bodyType: 'Sedan',
+      color: 'Silver',
+      features: const ['Cruise control', 'Alloy wheels'],
+      seats: 5,
+      ownerCount: 2,
+      rto: 'TS07',
+      safetyRating: '4 star',
+      discountPercent: 2,
+      contactPhone: customerUser.phone,
+    ),
+  ];
+
   static final jobs = <ServiceJob>[
     ServiceJob(
       id: 'job-1',
@@ -216,6 +332,7 @@ abstract final class DemoSeed {
       carId: 'car-1',
       message: 'Please confirm if the RR defogger part has arrived.',
       createdAt: DateTime.now().subtract(const Duration(hours: 4)),
+      channel: ChatChannel.general,
     ),
     SupportMessage(
       id: 'msg-2',
@@ -224,6 +341,7 @@ abstract final class DemoSeed {
       carId: 'car-1',
       message: 'The part is in stock and installation is under way.',
       createdAt: DateTime.now().subtract(const Duration(hours: 3, minutes: 45)),
+      channel: ChatChannel.general,
       sentByOwner: true,
     ),
   ];
@@ -265,7 +383,7 @@ abstract final class DemoSeed {
   ];
 
   static AppSession? sessionForPhone(String phone, String code) {
-    if (code != '123456') return null;
+    if (code != '12345') return null;
     if (phone == ownerUser.phone) {
       return const AppSession(user: ownerUser, token: 'demo-owner-token');
     }

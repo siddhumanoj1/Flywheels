@@ -15,11 +15,13 @@ class AppController extends ChangeNotifier {
   bool isBootstrapping = true;
   bool isSendingOtp = false;
   bool isVerifyingOtp = false;
+  bool isLoggingIn = false;
   String? requestedPhone;
   String? generatedOtp;
   String? errorMessage;
   AppSession? session;
   Timer? _bootstrapTimer;
+  int _authFlowRevision = 0;
 
   final List<GarageUser> _users = List<GarageUser>.from(DemoSeed.users);
   final List<CarProfile> _cars = List<CarProfile>.from(DemoSeed.cars);
@@ -38,6 +40,9 @@ class AppController extends ChangeNotifier {
   );
   final List<CustomerAssetDocument> _assetDocuments =
       List<CustomerAssetDocument>.from(DemoSeed.assetDocuments);
+  final List<CarSaleListing> _saleListings = List<CarSaleListing>.from(
+    DemoSeed.saleListings,
+  );
 
   GarageUser get ownerUser => _users.firstWhere(
     (user) => user.role == UserRole.owner,
@@ -114,6 +119,41 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  List<CarSaleListing> get allSaleListings {
+    final listings = _saleListings.toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return List.unmodifiable(listings);
+  }
+
+  List<CarSaleListing> get saleListings => activeSaleListings;
+
+  List<CarSaleListing> get activeSaleListings {
+    final listings =
+        _saleListings
+            .where((listing) => listing.status == CarSaleStatus.active)
+            .toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return List.unmodifiable(listings);
+  }
+
+  List<CarSaleListing> get pendingSaleListings {
+    final listings =
+        _saleListings
+            .where((listing) => listing.status == CarSaleStatus.pendingApproval)
+            .toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return List.unmodifiable(listings);
+  }
+
+  List<CarSaleListing> get soldSaleListings {
+    final listings =
+        _saleListings
+            .where((listing) => listing.status == CarSaleStatus.sold)
+            .toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return List.unmodifiable(listings);
+  }
+
   CarProfile? get activeCar {
     if (cars.isEmpty) return null;
     return cars.firstWhere((car) => car.isActive, orElse: () => cars.first);
@@ -142,7 +182,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> requestOtp(String phone) async {
+    _authFlowRevision++;
     isSendingOtp = true;
+    isVerifyingOtp = false;
+    isLoggingIn = false;
     errorMessage = null;
     requestedPhone = phone;
     generatedOtp = null;
@@ -150,9 +193,9 @@ class AppController extends ChangeNotifier {
 
     try {
       final response = await _apiClient.requestOtp(phone);
-      generatedOtp = response.devOtp ?? '123456';
+      generatedOtp = response.devOtp ?? '12345';
     } catch (_) {
-      generatedOtp = '123456';
+      generatedOtp = '12345';
     } finally {
       isSendingOtp = false;
       notifyListeners();
@@ -166,22 +209,29 @@ class AppController extends ChangeNotifier {
       return false;
     }
 
+    final flowRevision = ++_authFlowRevision;
     isVerifyingOtp = true;
+    isLoggingIn = false;
     errorMessage = null;
     notifyListeners();
 
+    AppSession? resolvedSession;
     try {
       final remoteSession = await _apiClient.verifyOtp(requestedPhone!, code);
-      session =
+      resolvedSession =
           remoteSession ?? DemoSeed.sessionForPhone(requestedPhone!, code);
     } catch (_) {
-      session = DemoSeed.sessionForPhone(requestedPhone!, code);
+      resolvedSession = DemoSeed.sessionForPhone(requestedPhone!, code);
     } finally {
       isVerifyingOtp = false;
-      notifyListeners();
     }
 
-    if (session == null) {
+    if (flowRevision != _authFlowRevision) {
+      notifyListeners();
+      return false;
+    }
+
+    if (resolvedSession == null) {
       errorMessage =
           'Invalid OTP. Use the development OTP if the backend is offline.';
       notifyListeners();
@@ -189,20 +239,45 @@ class AppController extends ChangeNotifier {
     }
 
     final existingUser = _users
-        .where((user) => user.id == session!.user.id)
+        .where((user) => user.id == resolvedSession!.user.id)
         .firstOrNull;
     if (existingUser == null) {
-      _users.insert(0, session!.user);
+      _users.insert(0, resolvedSession.user);
     }
 
+    isLoggingIn = true;
+    notifyListeners();
+    unawaited(_finishLogin(resolvedSession, flowRevision));
     return true;
   }
 
+  Future<void> _finishLogin(
+    AppSession resolvedSession,
+    int flowRevision,
+  ) async {
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    if (flowRevision != _authFlowRevision) return;
+
+    session = resolvedSession;
+    isLoggingIn = false;
+    notifyListeners();
+  }
+
+  void cancelLogin() {
+    _authFlowRevision++;
+    final hadActiveLogin = isVerifyingOtp || isLoggingIn;
+    isVerifyingOtp = false;
+    isLoggingIn = false;
+    if (hadActiveLogin) notifyListeners();
+  }
+
   void logout() {
+    _authFlowRevision++;
     session = null;
     requestedPhone = null;
     generatedOtp = null;
     errorMessage = null;
+    isLoggingIn = false;
     notifyListeners();
   }
 
@@ -291,6 +366,301 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void addSaleListing({
+    String? carNumber,
+    required String title,
+    required String model,
+    required String fuelType,
+    required int year,
+    required double price,
+    required int odometerKm,
+    required String transmission,
+    required String location,
+    required String description,
+    required List<CarSaleMedia> media,
+    bool returnAssurance = false,
+    String bodyType = 'SUV',
+    String color = 'White',
+    List<String> features = const [],
+    int seats = 5,
+    int ownerCount = 1,
+    String rto = 'TS',
+    String safetyRating = 'Not rated',
+    int discountPercent = 0,
+    bool isGarageVerified = false,
+  }) {
+    final currentSession = session;
+    if (currentSession == null) return;
+
+    final isOwnerPost = currentSession.role.isOwner;
+    final cleanModel = model.trim().isEmpty ? 'Car for sale' : model.trim();
+    final cleanFuel = fuelType.trim().isEmpty ? 'Petrol' : fuelType.trim();
+    final cleanMedia = media
+        .where((item) => item.path.trim().isNotEmpty)
+        .toList(growable: false);
+    final normalizedMedia = cleanMedia.isEmpty
+        ? [
+            CarSaleMedia(
+              path: CarMediaService.imageForModel(cleanModel, year: year),
+              type: CarSaleMediaType.image,
+              caption: 'Listing photo',
+            ),
+          ]
+        : cleanMedia;
+
+    final now = DateTime.now();
+    _saleListings.insert(
+      0,
+      CarSaleListing(
+        id: 'sale-${now.millisecondsSinceEpoch}',
+        sellerUserId: currentSession.user.id,
+        sellerName: currentSession.user.name,
+        title: title.trim().isEmpty ? '$year $cleanModel' : title.trim(),
+        model: cleanModel,
+        fuelType: cleanFuel,
+        year: year,
+        price: price < 0 ? 0.0 : price,
+        odometerKm: odometerKm < 0 ? 0 : odometerKm,
+        transmission: transmission.trim().isEmpty
+            ? 'Manual'
+            : transmission.trim(),
+        location: location.trim().isEmpty ? 'Garage' : location.trim(),
+        description: description.trim().isEmpty
+            ? 'Car listed for sale.'
+            : description.trim(),
+        media: normalizedMedia,
+        createdAt: now,
+        status: isOwnerPost
+            ? CarSaleStatus.active
+            : CarSaleStatus.pendingApproval,
+        returnAssurance: returnAssurance,
+        bodyType: bodyType.trim().isEmpty ? 'SUV' : bodyType.trim(),
+        color: color.trim().isEmpty ? 'White' : color.trim(),
+        features: features
+            .map((feature) => feature.trim())
+            .where((feature) => feature.isNotEmpty)
+            .toList(growable: false),
+        seats: seats <= 0 ? 5 : seats,
+        ownerCount: ownerCount <= 0 ? 1 : ownerCount,
+        rto: rto.trim().isEmpty ? 'TS' : rto.trim().toUpperCase(),
+        safetyRating: safetyRating.trim().isEmpty
+            ? 'Not rated'
+            : safetyRating.trim(),
+        discountPercent: discountPercent.clamp(0, 100).toInt(),
+        carNumber: carNumber == null || carNumber.trim().isEmpty
+            ? null
+            : carNumber.trim().toUpperCase(),
+        contactPhone: currentSession.user.phone,
+        postedByOwner: isOwnerPost,
+        isGarageVerified: isOwnerPost && (isGarageVerified || isOwnerPost),
+      ),
+    );
+
+    if (!isOwnerPost) {
+      _messages.add(
+        SupportMessage(
+          id: 'msg-${now.millisecondsSinceEpoch}',
+          userId: currentSession.user.id,
+          topic: 'Selling',
+          message: 'Car submitted for sale approval.',
+          createdAt: now,
+          channel: ChatChannel.selling,
+        ),
+      );
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: 'note-${now.millisecondsSinceEpoch + 1}',
+          userId: ownerUser.id,
+          title: 'Car submitted for sale',
+          message:
+              '${currentSession.user.name} submitted ${title.trim().isEmpty ? cleanModel : title.trim()} to Wheels.',
+          createdAt: now,
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  void addSaleListingFromCar({
+    required String carId,
+    required double price,
+    required int odometerKm,
+    required String transmission,
+    required String location,
+    required String description,
+    required List<CarSaleMedia> media,
+    bool returnAssurance = false,
+    String bodyType = 'SUV',
+    String color = 'White',
+    List<String> features = const [],
+    int seats = 5,
+    int ownerCount = 1,
+    String rto = 'TS',
+    String safetyRating = 'Not rated',
+    int discountPercent = 0,
+  }) {
+    final car = _cars.where((item) => item.id == carId).firstOrNull;
+    if (car == null) return;
+
+    addSaleListing(
+      carNumber: car.carNumber,
+      title: '${car.year} ${car.model}',
+      model: car.model,
+      fuelType: car.fuelType,
+      year: car.year,
+      price: price,
+      odometerKm: odometerKm,
+      transmission: transmission,
+      location: location,
+      description: description,
+      media: media.isEmpty
+          ? [
+              CarSaleMedia(
+                path: car.imageUrl,
+                type: CarSaleMediaType.image,
+                caption: 'Garage listing photo',
+              ),
+            ]
+          : media,
+      returnAssurance: returnAssurance,
+      bodyType: bodyType,
+      color: color,
+      features: features,
+      seats: seats,
+      ownerCount: ownerCount,
+      rto: rto,
+      safetyRating: safetyRating,
+      discountPercent: discountPercent,
+      isGarageVerified: true,
+    );
+  }
+
+  void approveSaleListing(String listingId) {
+    final index = _saleListings.indexWhere(
+      (listing) => listing.id == listingId,
+    );
+    if (index == -1) return;
+    final listing = _saleListings[index];
+    _saleListings[index] = listing.copyWith(
+      status: CarSaleStatus.active,
+      isGarageVerified: true,
+    );
+
+    if (!listing.postedByOwner) {
+      sendOwnerMessage(
+        customerUserId: listing.sellerUserId,
+        topic: 'Selling',
+        message: '${listing.title} is approved for Wheels.',
+        channel: ChatChannel.selling,
+      );
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void rejectSaleListing(String listingId) {
+    final index = _saleListings.indexWhere(
+      (listing) => listing.id == listingId,
+    );
+    if (index == -1) return;
+    final listing = _saleListings[index];
+    _saleListings[index] = listing.copyWith(status: CarSaleStatus.rejected);
+
+    if (!listing.postedByOwner) {
+      sendOwnerMessage(
+        customerUserId: listing.sellerUserId,
+        topic: 'Selling',
+        message: '${listing.title} was not approved for Wheels.',
+        channel: ChatChannel.selling,
+      );
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void markSaleListingSold(String listingId) {
+    final index = _saleListings.indexWhere(
+      (listing) => listing.id == listingId,
+    );
+    if (index == -1) return;
+    _saleListings[index] = _saleListings[index].copyWith(
+      status: CarSaleStatus.sold,
+    );
+    notifyListeners();
+  }
+
+  void updateSaleListing({
+    required String listingId,
+    String? carNumber,
+    required String title,
+    required String model,
+    required String fuelType,
+    required int year,
+    required double price,
+    required int odometerKm,
+    required String transmission,
+    required String location,
+    required String description,
+    required List<CarSaleMedia> media,
+    String bodyType = 'SUV',
+    String color = 'White',
+    List<String> features = const [],
+    int seats = 5,
+    int ownerCount = 1,
+    String rto = 'TS',
+  }) {
+    final currentSession = session;
+    if (currentSession == null || !currentSession.role.isOwner) return;
+    final index = _saleListings.indexWhere(
+      (listing) => listing.id == listingId,
+    );
+    if (index == -1) return;
+
+    final existing = _saleListings[index];
+    final cleanModel = model.trim().isEmpty ? existing.model : model.trim();
+    final cleanFuel = fuelType.trim().isEmpty
+        ? existing.fuelType
+        : fuelType.trim();
+    final cleanMedia = media
+        .where((item) => item.path.trim().isNotEmpty)
+        .toList(growable: false);
+    final cleanFeatures = features
+        .map((feature) => feature.trim())
+        .where((feature) => feature.isNotEmpty)
+        .toList(growable: false);
+    final newPrice = price < 0 ? existing.price : price;
+    final priceChanged = newPrice != existing.price;
+
+    _saleListings[index] = existing.copyWith(
+      title: title.trim().isEmpty ? existing.title : title.trim(),
+      model: cleanModel,
+      fuelType: cleanFuel,
+      year: year <= 0 ? existing.year : year,
+      price: newPrice,
+      previousPrice: priceChanged ? existing.price : existing.previousPrice,
+      odometerKm: odometerKm < 0 ? existing.odometerKm : odometerKm,
+      transmission: transmission.trim().isEmpty
+          ? existing.transmission
+          : transmission.trim(),
+      location: location.trim().isEmpty ? existing.location : location.trim(),
+      description: description.trim().isEmpty
+          ? existing.description
+          : description.trim(),
+      media: cleanMedia,
+      bodyType: bodyType.trim().isEmpty ? existing.bodyType : bodyType.trim(),
+      color: color.trim().isEmpty ? existing.color : color.trim(),
+      features: cleanFeatures,
+      seats: seats <= 0 ? existing.seats : seats,
+      ownerCount: ownerCount <= 0 ? existing.ownerCount : ownerCount,
+      rto: rto.trim().isEmpty ? existing.rto : rto.trim().toUpperCase(),
+      carNumber: carNumber == null || carNumber.trim().isEmpty
+          ? existing.carNumber
+          : carNumber.trim().toUpperCase(),
+    );
+    notifyListeners();
+  }
+
   List<ServiceJob> jobsForCar(String carId) {
     return jobs.where((job) => job.carId == carId).toList()
       ..sort(_compareJobsByRecency);
@@ -335,10 +705,15 @@ class AppController extends ChangeNotifier {
     return userById(car.userId);
   }
 
-  List<SupportMessage> conversationForUser(String userId, {String? carId}) {
+  List<SupportMessage> conversationForUser(
+    String userId, {
+    String? carId,
+    ChatChannel? channel,
+  }) {
     final filtered =
         _messages.where((message) {
             if (message.userId != userId) return false;
+            if (channel != null && message.channel != channel) return false;
             if (carId == null) return true;
             return message.carId == carId;
           }).toList()
@@ -908,6 +1283,7 @@ class AppController extends ChangeNotifier {
   void sendCustomerMessage({
     required String topic,
     required String message,
+    ChatChannel channel = ChatChannel.general,
     String? carId,
     String? attachmentPath,
   }) {
@@ -930,6 +1306,7 @@ class AppController extends ChangeNotifier {
         topic: topic,
         message: message.trim().isEmpty ? 'Photo shared' : message.trim(),
         createdAt: now,
+        channel: channel,
         carId: carId,
         attachmentPath: attachmentPath,
       ),
@@ -962,6 +1339,7 @@ class AppController extends ChangeNotifier {
     required String customerUserId,
     required String topic,
     required String message,
+    ChatChannel channel = ChatChannel.general,
     String? carId,
     String? attachmentPath,
   }) {
@@ -982,6 +1360,7 @@ class AppController extends ChangeNotifier {
         topic: topic,
         message: message.trim().isEmpty ? 'Photo shared' : message.trim(),
         createdAt: now,
+        channel: channel,
         carId: carId,
         attachmentPath: attachmentPath,
         sentByOwner: true,
@@ -1001,7 +1380,11 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void sendDocumentInChat(ServiceDocument document, {String? attachmentPath}) {
+  void sendDocumentInChat(
+    ServiceDocument document, {
+    String? attachmentPath,
+    ChatChannel channel = ChatChannel.general,
+  }) {
     final car = _cars.where((item) => item.id == document.carId).firstOrNull;
     final customerId = car?.userId ?? document.userId;
     if (customerId.isEmpty) return;
@@ -1011,9 +1394,49 @@ class AppController extends ChangeNotifier {
       topic: document.type.label,
       message:
           '${document.type.label} ${document.title} shared. Total: ${document.total.toStringAsFixed(0)}. PDF attached for WhatsApp sharing.',
+      channel: channel,
       carId: document.carId.isEmpty ? null : document.carId,
       attachmentPath: attachmentPath,
     );
+  }
+
+  bool sendBuyingInterest(CarSaleListing listing) {
+    final currentSession = session;
+    if (currentSession == null || currentSession.role.isOwner) return false;
+    final now = DateTime.now();
+    _messages.add(
+      SupportMessage(
+        id: 'msg-${now.millisecondsSinceEpoch}',
+        userId: currentSession.user.id,
+        topic: listing.title,
+        message: 'Im Intrested',
+        createdAt: now,
+        channel: ChatChannel.buying,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.millisecondsSinceEpoch + 1}',
+        userId: ownerUser.id,
+        title: 'Buying enquiry',
+        message:
+            '${currentSession.user.name} is interested in ${listing.title}.',
+        createdAt: now,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.millisecondsSinceEpoch + 2}',
+        userId: currentSession.user.id,
+        title: 'Interest sent',
+        message: 'Your interest in ${listing.title} has been sent.',
+        createdAt: now,
+      ),
+    );
+    notifyListeners();
+    return true;
   }
 
   void markConversationReadByOwner(String customerUserId) {
@@ -1062,11 +1485,15 @@ class AppController extends ChangeNotifier {
         .length;
   }
 
-  int unreadIncomingCountForCustomer(String customerUserId) {
+  int unreadIncomingCountForCustomer(
+    String customerUserId, {
+    ChatChannel? channel,
+  }) {
     return _messages
         .where(
           (message) =>
               message.userId == customerUserId &&
+              (channel == null || message.channel == channel) &&
               !message.sentByOwner &&
               !message.isRead,
         )

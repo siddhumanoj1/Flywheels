@@ -4,6 +4,7 @@ import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/screens/owner/owner_document_tab.dart';
+import 'package:flywheels/screens/shared/wheels_marketplace_tab.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
@@ -28,6 +29,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   String? _selectedOwnerChatCarId;
   String _ownerChatSearch = '';
   bool _ownerChatSlideForward = true;
+  ChatChannel _ownerChatChannel = ChatChannel.general;
   _OwnerGarageFilter _garageFilter = _OwnerGarageFilter.inGarage;
 
   @override
@@ -367,6 +369,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       customerUserId: _selectedOwnerChatUserId!,
       topic: 'Garage update',
       message: _ownerReplyController.text.trim(),
+      channel: _ownerChatChannel,
       carId: _selectedOwnerChatCarId,
     );
     setState(() => _ownerReplyController.clear());
@@ -384,13 +387,17 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
         car: car,
         customer: customer,
       );
-      controller.sendDocumentInChat(document, attachmentPath: export.filePath);
+      controller.sendDocumentInChat(
+        document,
+        attachmentPath: export.filePath,
+        channel: _ownerChatChannel,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${document.title} PDF sent in chat.')),
       );
     } catch (_) {
-      controller.sendDocumentInChat(document);
+      controller.sendDocumentInChat(document, channel: _ownerChatChannel);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${document.title} sent in chat.')),
@@ -412,10 +419,15 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       customerUserId: customerUserId,
       topic: 'Photo',
       message: _ownerReplyController.text.trim(),
+      channel: _ownerChatChannel,
       carId: _selectedOwnerChatCarId,
       attachmentPath: image.path,
     );
     setState(() => _ownerReplyController.clear());
+  }
+
+  Future<void> _postCarForSale(CarProfile car) async {
+    await showWheelsListingSheet(context, picker: _picker, sourceCar: car);
   }
 
   void _openChatForCar(CarProfile car) {
@@ -423,7 +435,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       _selectedOwnerChatUserId = car.userId;
       _selectedOwnerChatCarId = car.id;
       _ownerChatSlideForward = true;
-      _currentIndex = 2;
+      _currentIndex = 3;
     });
     FlywheelsScope.read(context).markConversationReadByOwner(car.userId);
   }
@@ -431,7 +443,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
-    final titles = ['Owner Dashboard', 'Cars', 'Chat', 'Documents'];
+    final titles = ['Owner Dashboard', 'Cars', 'Wheels', 'Chat', 'Documents'];
 
     return Scaffold(
       appBar: AppBar(
@@ -459,9 +471,10 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
               _garageFilter = filter;
               _currentIndex = 1;
             }),
+            onOpenWheels: () => setState(() => _currentIndex = 2),
             onOpenDocuments: (carId) => setState(() {
               _preferredCarId = carId.isEmpty ? null : carId;
-              _currentIndex = 3;
+              _currentIndex = 4;
             }),
             onOpenChat: _openChatForCar,
           ),
@@ -471,7 +484,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             onOpenDocuments: (carId) {
               setState(() {
                 _preferredCarId = carId;
-                _currentIndex = 3;
+                _currentIndex = 4;
               });
             },
             onOpenChat: _openChatForCar,
@@ -479,11 +492,14 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
                 _addGaragePhoto(context, car, status: status),
             onAssignPickup: (job) => _showPickupAssignmentSheet(context, job),
             onCompletePickup: (job) => _completePickupWithPhoto(context, job),
+            onSellCar: _postCarForSale,
             onAddCar: () => _showAddOwnerCarSheet(context),
           ),
+          OwnerWheelsMarketplaceTab(picker: _picker),
           _OwnerChatTab(
             selectedUserId: _selectedOwnerChatUserId,
             selectedCarId: _selectedOwnerChatCarId,
+            channel: _ownerChatChannel,
             searchQuery: _ownerChatSearch,
             slideForward: _ownerChatSlideForward,
             replyController: _ownerReplyController,
@@ -499,6 +515,8 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             }),
             onCarChanged: (value) =>
                 setState(() => _selectedOwnerChatCarId = value),
+            onChannelChanged: (value) =>
+                setState(() => _ownerChatChannel = value),
             onSearchChanged: (value) =>
                 setState(() => _ownerChatSearch = value),
             onSendDocument: _sendDocumentToSelectedChat,
@@ -514,6 +532,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
         badgeCounts: [
           0,
           0,
+          0,
           controller.unreadMessageCountForCurrentSession(),
           0,
         ],
@@ -527,6 +546,12 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             icon: Icons.directions_car_outlined,
             activeIcon: Icons.directions_car_rounded,
             label: 'Cars',
+          ),
+          AppBottomNavItem(
+            icon: Icons.motion_photos_auto_outlined,
+            activeIcon: Icons.motion_photos_auto_rounded,
+            label: 'Wheels',
+            color: AppPalette.red,
           ),
           AppBottomNavItem(
             icon: Icons.chat_bubble_outline_rounded,
@@ -551,6 +576,7 @@ class _OwnerDashboardTab extends StatelessWidget {
     required this.onAssignPickup,
     required this.onCompletePickup,
     required this.onOpenCars,
+    required this.onOpenWheels,
     required this.onOpenDocuments,
     required this.onOpenChat,
   });
@@ -558,6 +584,7 @@ class _OwnerDashboardTab extends StatelessWidget {
   final ValueChanged<ServiceJob> onAssignPickup;
   final ValueChanged<ServiceJob> onCompletePickup;
   final ValueChanged<_OwnerGarageFilter> onOpenCars;
+  final VoidCallback onOpenWheels;
   final ValueChanged<String> onOpenDocuments;
   final ValueChanged<CarProfile> onOpenChat;
 
@@ -693,6 +720,9 @@ class _OwnerDashboardTab extends StatelessWidget {
         .whereType<ServiceJob>()
         .take(5)
         .toList();
+    final pendingSales = controller.pendingSaleListings;
+    final liveSales = controller.activeSaleListings;
+    final soldSales = controller.soldSaleListings;
 
     _DashboardDetailItem carItem(CarProfile car) {
       final customer = controller.customerForCar(car.id);
@@ -759,6 +789,13 @@ class _OwnerDashboardTab extends StatelessWidget {
           workCount: workInProgress.length,
           completedCount: completed.length,
           onOpenCars: onOpenCars,
+        ),
+        const SizedBox(height: 16),
+        _OwnerWheelsSummaryCard(
+          pending: pendingSales.length,
+          live: liveSales.length,
+          sold: soldSales.length,
+          onOpen: onOpenWheels,
         ),
         const SizedBox(height: 16),
         GridView.count(
@@ -1019,6 +1056,67 @@ class _OwnerStageTile extends StatelessWidget {
               Text(label, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OwnerWheelsSummaryCard extends StatelessWidget {
+  const _OwnerWheelsSummaryCard({
+    required this.pending,
+    required this.live,
+    required this.sold,
+    required this.onOpen,
+  });
+
+  final int pending;
+  final int live;
+  final int sold;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppPalette.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.motion_photos_auto_rounded,
+                color: AppPalette.red,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Wheels sales',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$pending approvals | $live live | $sold sold',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: onOpen,
+              icon: const Icon(Icons.arrow_forward_rounded),
+              label: const Text('Open'),
+            ),
+          ],
         ),
       ),
     );
@@ -1471,6 +1569,7 @@ class _OwnerOperationsTab extends StatelessWidget {
     required this.onAddPhoto,
     required this.onAssignPickup,
     required this.onCompletePickup,
+    required this.onSellCar,
     required this.onAddCar,
   });
 
@@ -1481,6 +1580,7 @@ class _OwnerOperationsTab extends StatelessWidget {
   final void Function(CarProfile car, JobStatus? status) onAddPhoto;
   final ValueChanged<ServiceJob> onAssignPickup;
   final ValueChanged<ServiceJob> onCompletePickup;
+  final ValueChanged<CarProfile> onSellCar;
   final VoidCallback onAddCar;
 
   List<CarProfile> _visibleCars(AppController controller) {
@@ -1640,6 +1740,15 @@ class _OwnerOperationsTab extends StatelessWidget {
                         icon: Icons.photo_camera_outlined,
                         label: 'Photo',
                         onPressed: () => onAddPhoto(car, null),
+                      ),
+                      AutomotiveControlButton(
+                        icon: Icons.sell_outlined,
+                        label: 'Sell',
+                        active: state.isAvailable || state.isInGarage,
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          onSellCar(car);
+                        },
                       ),
                       AutomotiveControlButton(
                         icon: Icons.chat_bubble_outline_rounded,
@@ -1979,12 +2088,14 @@ class _OwnerChatTab extends StatelessWidget {
   const _OwnerChatTab({
     required this.selectedUserId,
     required this.selectedCarId,
+    required this.channel,
     required this.searchQuery,
     required this.slideForward,
     required this.replyController,
     required this.onUserChanged,
     required this.onBack,
     required this.onCarChanged,
+    required this.onChannelChanged,
     required this.onSearchChanged,
     required this.onSendDocument,
     required this.onSendPhoto,
@@ -1993,12 +2104,14 @@ class _OwnerChatTab extends StatelessWidget {
 
   final String? selectedUserId;
   final String? selectedCarId;
+  final ChatChannel channel;
   final String searchQuery;
   final bool slideForward;
   final TextEditingController replyController;
   final ValueChanged<String?> onUserChanged;
   final VoidCallback onBack;
   final ValueChanged<String?> onCarChanged;
+  final ValueChanged<ChatChannel> onChannelChanged;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<ServiceDocument> onSendDocument;
   final VoidCallback onSendPhoto;
@@ -2017,36 +2130,65 @@ class _OwnerChatTab extends StatelessWidget {
       });
     }
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 180),
-      transitionBuilder: (child, animation) {
-        final tween = Tween<Offset>(
-          begin: slideForward ? const Offset(1, 0) : const Offset(-1, 0),
-          end: Offset.zero,
-        ).chain(CurveTween(curve: Curves.easeOutCubic));
-        return SlideTransition(position: animation.drive(tween), child: child);
-      },
-      child: selectedCustomer == null
-          ? _OwnerInboxView(
-              key: const ValueKey('owner-inbox'),
-              searchQuery: searchQuery,
-              onSearchChanged: onSearchChanged,
-              onOpenCustomer: (customer) {
-                controller.markConversationReadByOwner(customer.id);
-                onUserChanged(customer.id);
-              },
-            )
-          : _OwnerChatWindow(
-              key: ValueKey('owner-chat-${selectedCustomer.id}'),
-              customer: selectedCustomer,
-              selectedCarId: selectedCarId,
-              replyController: replyController,
-              onBack: onBack,
-              onCarChanged: onCarChanged,
-              onSendDocument: onSendDocument,
-              onSendPhoto: onSendPhoto,
-              onSend: onSend,
-            ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: SegmentedButton<ChatChannel>(
+            segments: ChatChannel.values
+                .map(
+                  (item) => ButtonSegment<ChatChannel>(
+                    value: item,
+                    label: Text(item.label),
+                  ),
+                )
+                .toList(),
+            selected: {channel},
+            onSelectionChanged: (selection) =>
+                onChannelChanged(selection.first),
+          ),
+        ),
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            transitionBuilder: (child, animation) {
+              final tween = Tween<Offset>(
+                begin: slideForward ? const Offset(1, 0) : const Offset(-1, 0),
+                end: Offset.zero,
+              ).chain(CurveTween(curve: Curves.easeOutCubic));
+              return SlideTransition(
+                position: animation.drive(tween),
+                child: child,
+              );
+            },
+            child: selectedCustomer == null
+                ? _OwnerInboxView(
+                    key: ValueKey('owner-inbox-${channel.name}'),
+                    channel: channel,
+                    searchQuery: searchQuery,
+                    onSearchChanged: onSearchChanged,
+                    onOpenCustomer: (customer) {
+                      controller.markConversationReadByOwner(customer.id);
+                      onUserChanged(customer.id);
+                    },
+                  )
+                : _OwnerChatWindow(
+                    key: ValueKey(
+                      'owner-chat-${selectedCustomer.id}-${channel.name}',
+                    ),
+                    customer: selectedCustomer,
+                    selectedCarId: selectedCarId,
+                    channel: channel,
+                    replyController: replyController,
+                    onBack: onBack,
+                    onCarChanged: onCarChanged,
+                    onSendDocument: onSendDocument,
+                    onSendPhoto: onSendPhoto,
+                    onSend: onSend,
+                  ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2054,11 +2196,13 @@ class _OwnerChatTab extends StatelessWidget {
 class _OwnerInboxView extends StatelessWidget {
   const _OwnerInboxView({
     super.key,
+    required this.channel,
     required this.searchQuery,
     required this.onSearchChanged,
     required this.onOpenCustomer,
   });
 
+  final ChatChannel channel;
   final String searchQuery;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<GarageUser> onOpenCustomer;
@@ -2069,14 +2213,24 @@ class _OwnerInboxView extends StatelessWidget {
     final needle = searchQuery.trim().toLowerCase();
     final customers =
         controller.customers.where((customer) {
-          final messages = controller.conversationForUser(customer.id);
-          final last = messages.isEmpty ? '' : messages.last.message;
+          final messages = controller.conversationForUser(
+            customer.id,
+            channel: channel,
+          );
+          if (messages.isEmpty) return false;
+          final last = messages.last.message;
           final haystack = '${customer.name} ${customer.phone} $last'
               .toLowerCase();
           return needle.isEmpty || haystack.contains(needle);
         }).toList()..sort((left, right) {
-          final leftMessages = controller.conversationForUser(left.id);
-          final rightMessages = controller.conversationForUser(right.id);
+          final leftMessages = controller.conversationForUser(
+            left.id,
+            channel: channel,
+          );
+          final rightMessages = controller.conversationForUser(
+            right.id,
+            channel: channel,
+          );
           final leftDate = leftMessages.isEmpty
               ? DateTime.fromMillisecondsSinceEpoch(0)
               : leftMessages.last.createdAt;
@@ -2099,25 +2253,36 @@ class _OwnerInboxView extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-            itemCount: customers.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final customer = customers[index];
-              final messages = controller.conversationForUser(customer.id);
-              final last = messages.isEmpty ? null : messages.last;
-              final unread = controller.unreadIncomingCountForCustomer(
-                customer.id,
-              );
-              return _OwnerInboxTile(
-                customer: customer,
-                lastMessage: last,
-                unreadCount: unread,
-                onTap: () => onOpenCustomer(customer),
-              );
-            },
-          ),
+          child: customers.isEmpty
+              ? Center(
+                  child: Text(
+                    'No ${channel.label.toLowerCase()} chats yet.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+                  itemCount: customers.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final customer = customers[index];
+                    final messages = controller.conversationForUser(
+                      customer.id,
+                      channel: channel,
+                    );
+                    final last = messages.isEmpty ? null : messages.last;
+                    final unread = controller.unreadIncomingCountForCustomer(
+                      customer.id,
+                      channel: channel,
+                    );
+                    return _OwnerInboxTile(
+                      customer: customer,
+                      lastMessage: last,
+                      unreadCount: unread,
+                      onTap: () => onOpenCustomer(customer),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -2239,6 +2404,7 @@ class _OwnerChatWindow extends StatelessWidget {
     super.key,
     required this.customer,
     required this.selectedCarId,
+    required this.channel,
     required this.replyController,
     required this.onBack,
     required this.onCarChanged,
@@ -2249,6 +2415,7 @@ class _OwnerChatWindow extends StatelessWidget {
 
   final GarageUser customer;
   final String? selectedCarId;
+  final ChatChannel channel;
   final TextEditingController replyController;
   final VoidCallback onBack;
   final ValueChanged<String?> onCarChanged;
@@ -2264,6 +2431,7 @@ class _OwnerChatWindow extends StatelessWidget {
     final messages = controller.conversationForUser(
       customer.id,
       carId: selectedCarId,
+      channel: channel,
     );
     final documentCars = selectedCarId == null
         ? customerCars
@@ -2271,6 +2439,11 @@ class _OwnerChatWindow extends StatelessWidget {
     final documents = documentCars
         .expand((car) => controller.documentsForCar(car.id))
         .toList();
+    final pendingSaleListings = channel == ChatChannel.general
+        ? <CarSaleListing>[]
+        : controller.pendingSaleListings
+              .where((listing) => listing.sellerUserId == customer.id)
+              .toList();
 
     return Column(
       children: [
@@ -2317,29 +2490,38 @@ class _OwnerChatWindow extends StatelessWidget {
             ),
           ),
         ),
+        if (pendingSaleListings.isNotEmpty)
+          _OwnerChatApprovalPanel(listings: pendingSaleListings),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
-            itemCount: messages.length,
-            itemBuilder: (context, index) {
-              final message = messages[index];
-              final carLabel = controller.cars
-                  .where((car) => car.id == message.carId)
-                  .firstOrNull
-                  ?.carNumber;
-              return MessengerBubble(
-                message: message,
-                fromCurrentUser: message.sentByOwner,
-                avatarPath: message.sentByOwner
-                    ? owner.profileImagePath
-                    : customer.profileImagePath,
-                avatarInitials: message.sentByOwner
-                    ? owner.name.substring(0, 1)
-                    : customer.name.substring(0, 1),
-                carLabel: carLabel,
-              );
-            },
-          ),
+          child: messages.isEmpty
+              ? Center(
+                  child: Text(
+                    'No ${channel.label.toLowerCase()} messages yet.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+                    final carLabel = controller.cars
+                        .where((car) => car.id == message.carId)
+                        .firstOrNull
+                        ?.carNumber;
+                    return MessengerBubble(
+                      message: message,
+                      fromCurrentUser: message.sentByOwner,
+                      avatarPath: message.sentByOwner
+                          ? owner.profileImagePath
+                          : customer.profileImagePath,
+                      avatarInitials: message.sentByOwner
+                          ? owner.name.substring(0, 1)
+                          : customer.name.substring(0, 1),
+                      carLabel: carLabel,
+                    );
+                  },
+                ),
         ),
         SafeArea(
           top: false,
@@ -2400,8 +2582,8 @@ class _OwnerChatWindow extends StatelessWidget {
                     controller: replyController,
                     minLines: 1,
                     maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: 'Reply to customer...',
+                    decoration: InputDecoration(
+                      hintText: 'Reply about ${channel.label.toLowerCase()}...',
                     ),
                   ),
                 ),
@@ -2415,6 +2597,105 @@ class _OwnerChatWindow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _OwnerChatApprovalPanel extends StatelessWidget {
+  const _OwnerChatApprovalPanel({required this.listings});
+
+  final List<CarSaleListing> listings;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.read(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: const BoxDecoration(
+        color: AppPalette.soft,
+        border: Border(bottom: BorderSide(color: AppPalette.border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Car approvals', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          ...listings.map(
+            (listing) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppPalette.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppPalette.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.directions_car_filled_outlined,
+                          color: AppPalette.red,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            listing.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${formatCurrency(listing.price)} | ${listing.odometerKm} km | Posted ${formatShortDate(listing.createdAt)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            controller.rejectSaleListing(listing.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('${listing.title} rejected.'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                          label: const Text('Reject'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () {
+                            controller.approveSaleListing(listing.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('${listing.title} approved.'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.check_rounded),
+                          label: const Text('Approve'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

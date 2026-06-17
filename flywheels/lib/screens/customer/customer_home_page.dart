@@ -3,6 +3,7 @@ import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/screens/shared/document_pdf_viewer_page.dart';
+import 'package:flywheels/screens/shared/wheels_marketplace_tab.dart';
 import 'package:flywheels/services/car_media_service.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
@@ -26,6 +27,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   final _picker = ImagePicker();
   final _chatMessageController = TextEditingController();
   int _currentIndex = 0;
+  ChatChannel _customerChatChannel = ChatChannel.general;
   bool _pickingProfilePhoto = false;
 
   @override
@@ -807,7 +809,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
 
   void _selectTab(int index) {
     final controller = FlywheelsScope.read(context);
-    if (index == 2) {
+    if (index == 3) {
       controller.markConversationReadByCustomer(controller.session!.user.id);
     }
     setState(() => _currentIndex = index);
@@ -936,6 +938,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     controller.sendCustomerMessage(
       topic: 'General enquiry',
       message: _chatMessageController.text,
+      channel: _customerChatChannel,
       carId: controller.activeCar?.id,
     );
     setState(() => _chatMessageController.clear());
@@ -951,6 +954,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     controller.sendCustomerMessage(
       topic: 'Photo',
       message: _chatMessageController.text.trim(),
+      channel: _customerChatChannel,
       carId: controller.activeCar?.id,
       attachmentPath: image.path,
     );
@@ -1020,6 +1024,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         message: _chatMessageController.text.trim().isEmpty
             ? '${document.type.label} ${document.title} shared.'
             : _chatMessageController.text,
+        channel: _customerChatChannel,
         carId: document.carId.isEmpty ? null : document.carId,
         attachmentPath: export.filePath,
       );
@@ -1035,7 +1040,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
     final activeCar = controller.activeCar;
-    final titles = ['Home', 'Documents', 'Chat', 'Profile'];
+    final titles = ['Home', 'Documents', 'Wheels', 'Chat', 'Profile'];
     final showCarStrip = _currentIndex == 0 || _currentIndex == 1;
 
     return Scaffold(
@@ -1093,7 +1098,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                       _showQuotationRequestSheet(context, car),
                   onRequestImages: (car) => _showGaragePhotoSheet(context, car),
                   onSchedulePickup: (car) => _showPickupScheduler(context, car),
-                  onOpenChat: () => _selectTab(2),
+                  onOpenChat: () => _selectTab(3),
                   onOpenHistory: (car) => _showCarHistorySheet(context, car),
                   onOpenBills: () => _selectTab(1),
                 ),
@@ -1106,8 +1111,12 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                   onUploadVehicleDocument: (car) =>
                       _showUploadVehicleDocumentSheet(context, car),
                 ),
+                const WheelsMarketplaceTab(),
                 _CustomerChatTab(
                   chatMessageController: _chatMessageController,
+                  channel: _customerChatChannel,
+                  onChannelChanged: (value) =>
+                      setState(() => _customerChatChannel = value),
                   onSend: () => _sendChat(context),
                   onSendPhoto: () => _sendChatPhoto(context),
                   onSendDocument: () => _sendChatDocument(context),
@@ -1129,6 +1138,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         badgeCounts: [
           0,
           0,
+          0,
           controller.unreadMessageCountForCurrentSession(),
           0,
         ],
@@ -1142,6 +1152,12 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
             label: 'Docs',
             icon: Icons.description_outlined,
             activeIcon: Icons.description_rounded,
+          ),
+          AppBottomNavItem(
+            label: 'Wheels',
+            icon: Icons.motion_photos_auto_outlined,
+            activeIcon: Icons.motion_photos_auto_rounded,
+            color: AppPalette.red,
           ),
           AppBottomNavItem(
             label: 'Chat',
@@ -2467,12 +2483,16 @@ class _CustomerDocumentLibraryTile extends StatelessWidget {
 class _CustomerChatTab extends StatelessWidget {
   const _CustomerChatTab({
     required this.chatMessageController,
+    required this.channel,
+    required this.onChannelChanged,
     required this.onSend,
     required this.onSendPhoto,
     required this.onSendDocument,
   });
 
   final TextEditingController chatMessageController;
+  final ChatChannel channel;
+  final ValueChanged<ChatChannel> onChannelChanged;
   final VoidCallback onSend;
   final VoidCallback onSendPhoto;
   final VoidCallback onSendDocument;
@@ -2483,32 +2503,55 @@ class _CustomerChatTab extends StatelessWidget {
     final userId = controller.session!.user.id;
     final user = controller.session!.user;
     final owner = controller.ownerUser;
-    final messages = controller.conversationForUser(userId);
+    final messages = controller.conversationForUser(userId, channel: channel);
 
     return Column(
       children: [
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            itemCount: messages.length,
-            itemBuilder: (context, index) {
-              final message = messages[index];
-              return MessengerBubble(
-                message: message,
-                fromCurrentUser: !message.sentByOwner,
-                avatarPath: message.sentByOwner
-                    ? owner.profileImagePath
-                    : user.profileImagePath,
-                avatarInitials: message.sentByOwner
-                    ? owner.name.substring(0, 1)
-                    : user.name.substring(0, 1),
-                carLabel: controller.cars
-                    .where((car) => car.id == message.carId)
-                    .firstOrNull
-                    ?.carNumber,
-              );
-            },
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: SegmentedButton<ChatChannel>(
+            segments: ChatChannel.values
+                .map(
+                  (item) => ButtonSegment<ChatChannel>(
+                    value: item,
+                    label: Text(item.label),
+                  ),
+                )
+                .toList(),
+            selected: {channel},
+            onSelectionChanged: (selection) =>
+                onChannelChanged(selection.first),
           ),
+        ),
+        Expanded(
+          child: messages.isEmpty
+              ? Center(
+                  child: Text(
+                    'No ${channel.label.toLowerCase()} messages yet.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+                    return MessengerBubble(
+                      message: message,
+                      fromCurrentUser: !message.sentByOwner,
+                      avatarPath: message.sentByOwner
+                          ? owner.profileImagePath
+                          : user.profileImagePath,
+                      avatarInitials: message.sentByOwner
+                          ? owner.name.substring(0, 1)
+                          : user.name.substring(0, 1),
+                      carLabel: controller.cars
+                          .where((car) => car.id == message.carId)
+                          .firstOrNull
+                          ?.carNumber,
+                    );
+                  },
+                ),
         ),
         SafeArea(
           top: false,
@@ -2555,8 +2598,9 @@ class _CustomerChatTab extends StatelessWidget {
                     controller: chatMessageController,
                     minLines: 1,
                     maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: 'Message the garage...',
+                    decoration: InputDecoration(
+                      hintText:
+                          'Message the garage about ${channel.label.toLowerCase()}...',
                     ),
                   ),
                 ),

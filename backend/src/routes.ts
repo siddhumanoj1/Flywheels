@@ -20,7 +20,7 @@ const phoneSchema = z.object({
 });
 
 const verifyOtpSchema = phoneSchema.extend({
-  code: z.string().length(6),
+  code: z.string().length(5),
 });
 
 const carSchema = z.object({
@@ -63,7 +63,7 @@ const decisionSchema = z.object({
 });
 
 function generateOtpCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
 function generateDocumentNumber(type: 'invoice' | 'quotation' | 'estimation') {
