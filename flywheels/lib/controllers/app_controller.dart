@@ -43,6 +43,36 @@ class AppController extends ChangeNotifier {
   final List<CarSaleListing> _saleListings = List<CarSaleListing>.from(
     DemoSeed.saleListings,
   );
+  final List<StaffProfile> _staffProfiles = List<StaffProfile>.from(
+    DemoSeed.staffProfiles,
+  );
+  final List<MechanicWorkTask> _workTasks = List<MechanicWorkTask>.from(
+    DemoSeed.workTasks,
+  );
+  final List<ApprovalRequest> _approvalRequests = List<ApprovalRequest>.from(
+    DemoSeed.approvalRequests,
+  );
+  final List<ProgressUpdate> _progressUpdates = List<ProgressUpdate>.from(
+    DemoSeed.progressUpdates,
+  );
+  final List<StaffAttendance> _attendanceRecords = List<StaffAttendance>.from(
+    DemoSeed.attendanceRecords,
+  );
+  final List<LeaveRequest> _leaveRequests = List<LeaveRequest>.from(
+    DemoSeed.leaveRequests,
+  );
+  final List<StaffAdvance> _advances = List<StaffAdvance>.from(
+    DemoSeed.advances,
+  );
+  final List<SalaryRecord> _salaryRecords = List<SalaryRecord>.from(
+    DemoSeed.salaryRecords,
+  );
+  final List<StaffDocument> _staffDocuments = List<StaffDocument>.from(
+    DemoSeed.staffDocuments,
+  );
+  final List<CarTimelineEvent> _timelineEvents = List<CarTimelineEvent>.from(
+    DemoSeed.timelineEvents,
+  );
 
   GarageUser get ownerUser => _users.firstWhere(
     (user) => user.role == UserRole.owner,
@@ -52,10 +82,45 @@ class AppController extends ChangeNotifier {
   List<GarageUser> get customers =>
       List.unmodifiable(_users.where((user) => user.role == UserRole.customer));
 
+  List<GarageUser> get staffUsers =>
+      List.unmodifiable(_users.where((user) => user.role.isStaff));
+
+  List<StaffProfile> get staffProfiles {
+    final profiles = _staffProfiles.toList()
+      ..sort((left, right) {
+        final roleOrder = left.role == right.role
+            ? 0
+            : left.role.isMasterMechanic
+            ? -1
+            : 1;
+        if (roleOrder != 0) return roleOrder;
+        return left.name.compareTo(right.name);
+      });
+    return List.unmodifiable(profiles);
+  }
+
+  List<StaffProfile> get activeStaffProfiles =>
+      List.unmodifiable(staffProfiles.where((profile) => profile.isActive));
+
+  List<StaffProfile> get masterMechanicProfiles => List.unmodifiable(
+    staffProfiles.where((profile) => profile.role == UserRole.masterMechanic),
+  );
+
+  List<StaffProfile> get mechanicProfiles => List.unmodifiable(
+    staffProfiles.where((profile) => profile.role == UserRole.mechanic),
+  );
+
   List<CarProfile> get cars {
     final userId = session?.user.id;
     if (userId == null) return const [];
     if (session!.role.isOwner) return List.unmodifiable(_cars);
+    if (session!.role.isStaff) {
+      final carIds = _jobs
+          .where((job) => _jobVisibleToStaff(job, userId))
+          .map((job) => job.carId)
+          .toSet();
+      return List.unmodifiable(_cars.where((car) => carIds.contains(car.id)));
+    }
     return List.unmodifiable(_cars.where((car) => car.userId == userId));
   }
 
@@ -63,6 +128,11 @@ class AppController extends ChangeNotifier {
     final userId = session?.user.id;
     if (userId == null) return const [];
     if (session!.role.isOwner) return List.unmodifiable(_jobs);
+    if (session!.role.isStaff) {
+      return List.unmodifiable(
+        _jobs.where((job) => _jobVisibleToStaff(job, userId)),
+      );
+    }
     final carIds = _cars
         .where((car) => car.userId == userId)
         .map((car) => car.id)
@@ -74,6 +144,12 @@ class AppController extends ChangeNotifier {
     final userId = session?.user.id;
     if (userId == null) return const [];
     if (session!.role.isOwner) return List.unmodifiable(_documents);
+    if (session!.role.isStaff) {
+      final jobIds = jobs.map((job) => job.id).toSet();
+      return List.unmodifiable(
+        _documents.where((document) => jobIds.contains(document.jobId)),
+      );
+    }
     return List.unmodifiable(
       _documents.where((document) => document.userId == userId),
     );
@@ -101,6 +177,12 @@ class AppController extends ChangeNotifier {
     final userId = session?.user.id;
     if (userId == null) return const [];
     if (session!.role.isOwner) return List.unmodifiable(_photoUpdates);
+    if (session!.role.isStaff) {
+      final carIds = cars.map((car) => car.id).toSet();
+      return List.unmodifiable(
+        _photoUpdates.where((update) => carIds.contains(update.carId)),
+      );
+    }
     final carIds = _cars
         .where((car) => car.userId == userId)
         .map((car) => car.id)
@@ -152,6 +234,161 @@ class AppController extends ChangeNotifier {
             .toList()
           ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
     return List.unmodifiable(listings);
+  }
+
+  List<MechanicWorkTask> get workTasks {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) return List.unmodifiable(_workTasks);
+    if (currentSession.role.isMasterMechanic) {
+      return List.unmodifiable(
+        _workTasks.where(
+          (task) => task.masterMechanicId == currentSession.user.id,
+        ),
+      );
+    }
+    if (currentSession.role.isMechanic) {
+      return List.unmodifiable(
+        _workTasks.where((task) => task.mechanicId == currentSession.user.id),
+      );
+    }
+    return const [];
+  }
+
+  List<ApprovalRequest> get approvalRequests {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) {
+      return List.unmodifiable(_approvalRequests);
+    }
+    if (currentSession.role.isCustomer) {
+      final carIds = _cars
+          .where((car) => car.userId == currentSession.user.id)
+          .map((car) => car.id)
+          .toSet();
+      return List.unmodifiable(
+        _approvalRequests.where(
+          (request) =>
+              request.forwardedToCustomer && carIds.contains(request.carId),
+        ),
+      );
+    }
+    return List.unmodifiable(
+      _approvalRequests.where((request) {
+        if (request.requesterId == currentSession.user.id) return true;
+        final job = _jobs.where((item) => item.id == request.jobId).firstOrNull;
+        return job != null && _jobVisibleToStaff(job, currentSession.user.id);
+      }),
+    );
+  }
+
+  List<ApprovalRequest> get pendingApprovalRequests => List.unmodifiable(
+    approvalRequests.where(
+      (request) => request.status == ApprovalState.pending,
+    ),
+  );
+
+  List<ProgressUpdate> get progressUpdates {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) return List.unmodifiable(_progressUpdates);
+    if (currentSession.role.isCustomer) {
+      final carIds = _cars
+          .where((car) => car.userId == currentSession.user.id)
+          .map((car) => car.id)
+          .toSet();
+      return List.unmodifiable(
+        _progressUpdates.where(
+          (update) =>
+              update.forwardedToCustomer && carIds.contains(update.carId),
+        ),
+      );
+    }
+    return List.unmodifiable(
+      _progressUpdates.where((update) {
+        if (update.senderId == currentSession.user.id) return true;
+        final job = _jobs.where((item) => item.id == update.jobId).firstOrNull;
+        return job != null && _jobVisibleToStaff(job, currentSession.user.id);
+      }),
+    );
+  }
+
+  List<ProgressUpdate> get pendingStaffUpdates => List.unmodifiable(
+    _progressUpdates.where(
+      (update) => !update.forwardedToCustomer && !update.keptInternal,
+    ),
+  );
+
+  List<StaffAttendance> get attendanceRecords {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) {
+      return List.unmodifiable(_attendanceRecords);
+    }
+    if (currentSession.role.isStaff) {
+      return List.unmodifiable(
+        _attendanceRecords.where(
+          (record) => record.staffUserId == currentSession.user.id,
+        ),
+      );
+    }
+    return const [];
+  }
+
+  List<LeaveRequest> get leaveRequests {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) return List.unmodifiable(_leaveRequests);
+    if (currentSession.role.isStaff) {
+      return List.unmodifiable(
+        _leaveRequests.where(
+          (request) => request.staffUserId == currentSession.user.id,
+        ),
+      );
+    }
+    return const [];
+  }
+
+  List<StaffAdvance> get advances {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) return List.unmodifiable(_advances);
+    if (currentSession.role.isStaff) {
+      return List.unmodifiable(
+        _advances.where(
+          (advance) => advance.staffUserId == currentSession.user.id,
+        ),
+      );
+    }
+    return const [];
+  }
+
+  List<SalaryRecord> get salaryRecords {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) return List.unmodifiable(_salaryRecords);
+    if (currentSession.role.isStaff) {
+      return List.unmodifiable(
+        _salaryRecords.where(
+          (record) => record.staffUserId == currentSession.user.id,
+        ),
+      );
+    }
+    return const [];
+  }
+
+  List<StaffDocument> get staffDocuments {
+    final currentSession = session;
+    if (currentSession == null) return const [];
+    if (currentSession.role.isOwner) return List.unmodifiable(_staffDocuments);
+    if (currentSession.role.isStaff) {
+      return List.unmodifiable(
+        _staffDocuments.where(
+          (document) => document.staffUserId == currentSession.user.id,
+        ),
+      );
+    }
+    return const [];
   }
 
   CarProfile? get activeCar {
@@ -750,6 +987,1068 @@ class AppController extends ChangeNotifier {
         .firstOrNull;
   }
 
+  StaffProfile? staffProfileForUser(String userId) {
+    return _staffProfiles
+        .where((profile) => profile.userId == userId)
+        .firstOrNull;
+  }
+
+  String staffName(String? userId) {
+    if (userId == null || userId.isEmpty) return 'Not assigned';
+    final profile = staffProfileForUser(userId);
+    return profile?.name ?? userById(userId)?.name ?? 'Staff member';
+  }
+
+  List<StaffProfile> mechanicsUnderMaster(String masterMechanicId) {
+    return mechanicProfiles
+        .where((profile) => profile.masterMechanicId == masterMechanicId)
+        .toList();
+  }
+
+  List<ServiceJob> jobsForStaff(String staffUserId) {
+    return _jobs.where((job) => _jobVisibleToStaff(job, staffUserId)).toList()
+      ..sort(_compareJobsByRecency);
+  }
+
+  List<MechanicWorkTask> tasksForJob(String jobId) {
+    return _workTasks.where((task) => task.jobId == jobId).toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  }
+
+  List<MechanicWorkTask> tasksForMechanic(String mechanicUserId) {
+    return _workTasks
+        .where((task) => task.mechanicId == mechanicUserId)
+        .toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  }
+
+  List<ApprovalRequest> approvalRequestsForJob(String jobId) {
+    return approvalRequests.where((request) => request.jobId == jobId).toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  }
+
+  List<ProgressUpdate> progressUpdatesForJob(String jobId) {
+    return progressUpdates.where((update) => update.jobId == jobId).toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<StaffAttendance> attendanceForStaff(String staffUserId) {
+    return _attendanceRecords
+        .where((record) => record.staffUserId == staffUserId)
+        .toList()
+      ..sort((left, right) => right.date.compareTo(left.date));
+  }
+
+  StaffAttendance? todayAttendanceForStaff(String staffUserId) {
+    final now = DateTime.now();
+    return _attendanceRecords
+        .where(
+          (record) =>
+              record.staffUserId == staffUserId &&
+              record.date.year == now.year &&
+              record.date.month == now.month &&
+              record.date.day == now.day,
+        )
+        .firstOrNull;
+  }
+
+  List<LeaveRequest> leaveRequestsForStaff(String staffUserId) {
+    return _leaveRequests
+        .where((request) => request.staffUserId == staffUserId)
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<StaffAdvance> advancesForStaff(String staffUserId) {
+    return _advances
+        .where((advance) => advance.staffUserId == staffUserId)
+        .toList()
+      ..sort((left, right) => right.date.compareTo(left.date));
+  }
+
+  List<SalaryRecord> salaryRecordsForStaff(String staffUserId) {
+    return _salaryRecords
+        .where((record) => record.staffUserId == staffUserId)
+        .toList()
+      ..sort((left, right) => right.generatedAt.compareTo(left.generatedAt));
+  }
+
+  List<StaffDocument> staffDocumentsForStaff(String staffUserId) {
+    return _staffDocuments
+        .where((document) => document.staffUserId == staffUserId)
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<CarTimelineEvent> timelineForCar(String carId) {
+    final currentSession = session;
+    var audience = TimelineAudience.owner;
+    if (currentSession?.role.isCustomer ?? false) {
+      audience = TimelineAudience.customer;
+    } else if (currentSession?.role.isStaff ?? false) {
+      audience = TimelineAudience.staff;
+    }
+    return _timelineEvents
+        .where(
+          (event) => event.carId == carId && event.audiences.contains(audience),
+        )
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  int workloadCountForStaff(String staffUserId) {
+    final pickupJobs = _jobs
+        .where(
+          (job) =>
+              job.pickupMechanicId == staffUserId &&
+              job.status != JobStatus.onRoad,
+        )
+        .length;
+    final assignedJobs = _jobs
+        .where(
+          (job) =>
+              job.masterMechanicId == staffUserId ||
+              job.assignedMechanicIds.contains(staffUserId),
+        )
+        .length;
+    final activeTasks = _workTasks
+        .where(
+          (task) =>
+              task.mechanicId == staffUserId &&
+              task.status != WorkTaskStatus.reviewed,
+        )
+        .length;
+    return pickupJobs + assignedJobs + activeTasks;
+  }
+
+  void createStaffProfile({
+    required String name,
+    required String phone,
+    required UserRole role,
+    required double salary,
+    required DateTime joiningDate,
+    required String emergencyContact,
+    required String address,
+    required String skillNotes,
+    String? masterMechanicId,
+  }) {
+    if (!role.isStaff || name.trim().isEmpty || phone.trim().isEmpty) return;
+    final now = DateTime.now();
+    final user = GarageUser(
+      id: 'staff-user-${now.microsecondsSinceEpoch}',
+      name: name.trim(),
+      phone: _normalizeIndianPhoneForStorage(phone),
+      role: role,
+    );
+    _users.insert(0, user);
+    _staffProfiles.insert(
+      0,
+      StaffProfile(
+        id: 'staff-${now.microsecondsSinceEpoch}',
+        userId: user.id,
+        name: user.name,
+        phone: user.phone,
+        role: role,
+        salary: salary < 0 ? 0 : salary,
+        joiningDate: joiningDate,
+        emergencyContact: emergencyContact.trim(),
+        address: address.trim(),
+        skillNotes: skillNotes.trim(),
+        workStatus: StaffWorkStatus.free,
+        isActive: true,
+        masterMechanicId: role == UserRole.mechanic ? masterMechanicId : null,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.microsecondsSinceEpoch}',
+        userId: ownerUser.id,
+        title: 'Staff profile created',
+        message: '${user.name} was added as ${role.label}.',
+        createdAt: now,
+      ),
+    );
+    notifyListeners();
+  }
+
+  void updateStaffProfile({
+    required String staffUserId,
+    required String name,
+    required String phone,
+    required UserRole role,
+    required double salary,
+    required DateTime joiningDate,
+    required String emergencyContact,
+    required String address,
+    required String skillNotes,
+    required bool isActive,
+    String? masterMechanicId,
+  }) {
+    if (!role.isStaff || name.trim().isEmpty || phone.trim().isEmpty) return;
+    final index = _staffProfiles.indexWhere(
+      (profile) => profile.userId == staffUserId,
+    );
+    if (index == -1) return;
+    final cleanPhone = _normalizeIndianPhoneForStorage(phone);
+    _staffProfiles[index] = _staffProfiles[index].copyWith(
+      name: name.trim(),
+      phone: cleanPhone,
+      role: role,
+      salary: salary < 0 ? 0 : salary,
+      joiningDate: joiningDate,
+      emergencyContact: emergencyContact.trim(),
+      address: address.trim(),
+      skillNotes: skillNotes.trim(),
+      isActive: isActive,
+      workStatus: isActive
+          ? _staffProfiles[index].workStatus
+          : StaffWorkStatus.inactive,
+      masterMechanicId: role == UserRole.mechanic ? masterMechanicId : null,
+    );
+    final userIndex = _users.indexWhere((user) => user.id == staffUserId);
+    if (userIndex >= 0) {
+      _users[userIndex] = _users[userIndex].copyWith(
+        name: name.trim(),
+        phone: cleanPhone,
+        role: role,
+      );
+    }
+    if (session?.user.id == staffUserId && userIndex >= 0) {
+      session = session!.copyWith(user: _users[userIndex]);
+    }
+    notifyListeners();
+  }
+
+  void setStaffActive(String staffUserId, bool isActive) {
+    final index = _staffProfiles.indexWhere(
+      (profile) => profile.userId == staffUserId,
+    );
+    if (index == -1) return;
+    _staffProfiles[index] = _staffProfiles[index].copyWith(
+      isActive: isActive,
+      workStatus: isActive ? StaffWorkStatus.free : StaffWorkStatus.inactive,
+    );
+    notifyListeners();
+  }
+
+  void assignPickupMechanic(String jobId, String mechanicUserId) {
+    final mechanic = staffProfileForUser(mechanicUserId);
+    if (mechanic == null || mechanic.role != UserRole.mechanic) return;
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1) return;
+    final job = _jobs[index];
+    final now = DateTime.now();
+    _jobs[index] = job.copyWith(
+      pickupRequired: true,
+      pickupState: PickupState.assigned,
+      pickupMechanicId: mechanic.userId,
+      pickupPersonName: mechanic.name,
+      pickupPersonPhone: mechanic.phone,
+    );
+    _setStaffWorkStatus(mechanic.userId, StaffWorkStatus.onPickup);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Pickup mechanic assigned',
+        message: '${mechanic.name} is assigned for ${car.carNumber}.',
+        createdAt: now,
+      );
+      _notify(
+        userId: mechanic.userId,
+        title: 'Pickup assigned',
+        message: '${car.carNumber} pickup is assigned to you.',
+        createdAt: now,
+      );
+      _notify(
+        userId: car.userId,
+        title: 'Pickup mechanic assigned',
+        message:
+            '${mechanic.name} (${mechanic.phone}) will pick up ${car.carNumber}.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void markPickupDone(String jobId, {String? proofImagePath}) {
+    completePickup(jobId, proofImagePath: proofImagePath);
+  }
+
+  void markCarReceived(String jobId) {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1) return;
+    final now = DateTime.now();
+    _jobs[index] = _jobs[index].copyWith(
+      status: JobStatus.received,
+      pickupRequired: false,
+      pickupState: PickupState.completed,
+    );
+    final car = _cars
+        .where((item) => item.id == _jobs[index].carId)
+        .firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: jobId,
+        title: 'Car received',
+        message: '${car.carNumber} is accepted at the garage.',
+        createdAt: now,
+        audiences: const [TimelineAudience.owner, TimelineAudience.staff],
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Car received',
+        message: '${car.carNumber} is ready for Master Mechanic assignment.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void assignMasterMechanic(String jobId, String masterMechanicId) {
+    final master = staffProfileForUser(masterMechanicId);
+    if (master == null || master.role != UserRole.masterMechanic) return;
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1) return;
+    final job = _jobs[index];
+    if (job.status != JobStatus.received &&
+        job.status != JobStatus.underInspection &&
+        job.status != JobStatus.workInProgress) {
+      return;
+    }
+    final now = DateTime.now();
+    _jobs[index] = job.copyWith(masterMechanicId: master.userId);
+    _setStaffWorkStatus(master.userId, StaffWorkStatus.assigned);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Master Mechanic assigned',
+        message: '${master.name} is assigned for inspection and job card.',
+        createdAt: now,
+      );
+      _notify(
+        userId: master.userId,
+        title: 'Car assigned',
+        message: '${car.carNumber} is assigned to you.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void startInspection(String jobId) {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1) return;
+    final job = _jobs[index];
+    final now = DateTime.now();
+    _jobs[index] = job.copyWith(status: JobStatus.underInspection);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Inspection started',
+        message: '${car.carNumber} is Under Inspection.',
+        createdAt: now,
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Inspection started',
+        message: '${staffName(job.masterMechanicId)} started ${car.carNumber}.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  ServiceDocument? prepareJobCard({
+    required String jobId,
+    required String complaint,
+    required String inspectionNotes,
+    required List<DocumentLineItem> labourItems,
+    required List<DocumentLineItem> partsItems,
+    required DateTime expectedCompletion,
+    required String remarks,
+    List<String> photoPaths = const [],
+  }) {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1) return null;
+    final job = _jobs[index];
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car == null) return null;
+    final now = DateTime.now();
+    final items = [
+      DocumentLineItem(
+        description:
+            'Complaint: ${complaint.trim().isEmpty ? job.customerConcern : complaint.trim()}',
+        quantity: 1,
+        unitPrice: 0,
+        total: 0,
+      ),
+      DocumentLineItem(
+        description: 'Inspection notes: ${inspectionNotes.trim()}',
+        quantity: 1,
+        unitPrice: 0,
+        total: 0,
+      ),
+      ...labourItems,
+      ...partsItems,
+      if (remarks.trim().isNotEmpty)
+        DocumentLineItem(
+          description: 'Remarks: ${remarks.trim()}',
+          quantity: 1,
+          unitPrice: 0,
+          total: 0,
+        ),
+    ];
+    final total = items.fold<double>(0, (sum, item) => sum + item.total);
+    final document = ServiceDocument(
+      id: 'doc-${now.microsecondsSinceEpoch}',
+      userId: car.userId,
+      carId: car.id,
+      jobId: job.id,
+      type: DocumentType.jobCard,
+      title: 'JOB-${now.millisecondsSinceEpoch.toString().substring(7)}',
+      items: items,
+      total: total,
+      approvalState: ApprovalState.pending,
+      paymentState: PaymentState.pending,
+      createdAt: now,
+      updatedAt: now,
+      pdfLabel: 'Job card PDF',
+    );
+    _documents.insert(0, document);
+    _jobs[index] = job.copyWith(
+      status: JobStatus.underInspection,
+      expectedCompletion: expectedCompletion,
+      customerConcern: complaint.trim().isEmpty
+          ? job.customerConcern
+          : complaint.trim(),
+    );
+    for (final photoPath in photoPaths.where(
+      (path) => path.trim().isNotEmpty,
+    )) {
+      _photoUpdates.insert(
+        0,
+        GaragePhotoUpdate(
+          id: 'photo-${now.microsecondsSinceEpoch}-${_photoUpdates.length}',
+          userId: car.userId,
+          carId: car.id,
+          imagePath: photoPath.trim(),
+          caption: 'Inspection photo for ${document.title}',
+          createdAt: now,
+        ),
+      );
+    }
+    _addTimelineEvent(
+      carId: car.id,
+      jobId: job.id,
+      title: 'Job card sent for approval',
+      message:
+          '${document.title} was sent for approval. Estimate ${document.total.toStringAsFixed(0)}.',
+      createdAt: now,
+    );
+    _notify(
+      userId: car.userId,
+      title: 'Job card needs approval',
+      message: '${document.title} is ready for ${car.carNumber}.',
+      createdAt: now,
+    );
+    _notify(
+      userId: ownerUser.id,
+      title: 'Job card prepared',
+      message: '${staffName(job.masterMechanicId)} prepared ${document.title}.',
+      createdAt: now,
+    );
+    notifyListeners();
+    return document;
+  }
+
+  void assignMechanicTask({
+    required String jobId,
+    required String mechanicUserId,
+    required String title,
+    required String instructions,
+  }) {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    final mechanic = staffProfileForUser(mechanicUserId);
+    if (index == -1 || mechanic == null || mechanic.role != UserRole.mechanic) {
+      return;
+    }
+    final job = _jobs[index];
+    if (job.status != JobStatus.workInProgress) return;
+    final now = DateTime.now();
+    final assigned = {...job.assignedMechanicIds, mechanic.userId}.toList();
+    _jobs[index] = job.copyWith(assignedMechanicIds: assigned);
+    _workTasks.insert(
+      0,
+      MechanicWorkTask(
+        id: 'task-${now.microsecondsSinceEpoch}',
+        jobId: job.id,
+        carId: job.carId,
+        masterMechanicId: job.masterMechanicId ?? session?.user.id ?? '',
+        mechanicId: mechanic.userId,
+        title: title.trim().isEmpty ? 'Garage work' : title.trim(),
+        instructions: instructions.trim(),
+        status: WorkTaskStatus.waiting,
+        updatedAt: now,
+      ),
+    );
+    _setStaffWorkStatus(mechanic.userId, StaffWorkStatus.onWork);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Mechanic assigned',
+        message: '${mechanic.name} received work instructions.',
+        createdAt: now,
+        audiences: const [TimelineAudience.owner, TimelineAudience.staff],
+      );
+      _notify(
+        userId: mechanic.userId,
+        title: 'Work assigned',
+        message:
+            '${car.carNumber}: ${title.trim().isEmpty ? 'Garage work' : title.trim()}',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void updateTaskProgress({
+    required String taskId,
+    required WorkTaskStatus status,
+    String? notes,
+    List<String> photoPaths = const [],
+  }) {
+    final index = _workTasks.indexWhere((task) => task.id == taskId);
+    if (index == -1) return;
+    final now = DateTime.now();
+    final task = _workTasks[index];
+    _workTasks[index] = task.copyWith(
+      status: status,
+      notes: notes == null || notes.trim().isEmpty ? task.notes : notes.trim(),
+      photoPaths: [
+        ...task.photoPaths,
+        ...photoPaths.where((path) => path.trim().isNotEmpty),
+      ],
+      updatedAt: now,
+    );
+    final car = _cars.where((item) => item.id == task.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: task.jobId,
+        title: 'Work update',
+        message:
+            '${staffName(task.mechanicId)} marked ${task.title} as ${status.label}.',
+        createdAt: now,
+        audiences: const [TimelineAudience.owner, TimelineAudience.staff],
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Mechanic update',
+        message: '${car.carNumber}: ${task.title} is ${status.label}.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void reviewTask(String taskId) {
+    updateTaskProgress(taskId: taskId, status: WorkTaskStatus.reviewed);
+  }
+
+  void markWorkCompleteForReview(String jobId) {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1) return;
+    final job = _jobs[index];
+    final now = DateTime.now();
+    _jobs[index] = job.copyWith(status: JobStatus.completed);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Work completed',
+        message: '${car.carNumber} is Completed - Waiting For Pickup.',
+        createdAt: now,
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Work complete',
+        message: '${car.carNumber} is waiting for pickup or delivery.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void sendApprovalRequest({
+    required String jobId,
+    required String message,
+    required String reason,
+    double amount = 0,
+    RequestUrgency urgency = RequestUrgency.normal,
+    List<String> photoPaths = const [],
+    bool blocksWork = false,
+  }) {
+    final job = _jobs.where((item) => item.id == jobId).firstOrNull;
+    if (job == null || message.trim().isEmpty) return;
+    final now = DateTime.now();
+    final requesterId =
+        session?.user.id ?? job.masterMechanicId ?? ownerUser.id;
+    final request = ApprovalRequest(
+      id: 'approval-${now.microsecondsSinceEpoch}',
+      jobId: job.id,
+      carId: job.carId,
+      requesterId: requesterId,
+      message: message.trim(),
+      reason: reason.trim(),
+      amount: amount < 0 ? 0 : amount,
+      photoPaths: photoPaths.where((path) => path.trim().isNotEmpty).toList(),
+      urgency: urgency,
+      status: ApprovalState.pending,
+      createdAt: now,
+      updatedAt: now,
+      blocksWork: blocksWork,
+    );
+    _approvalRequests.insert(0, request);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Approval request sent',
+        message:
+            '${staffName(requesterId)} asked for a decision: ${request.message}.',
+        createdAt: now,
+        audiences: const [TimelineAudience.owner, TimelineAudience.staff],
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Approval request',
+        message: '${car.carNumber}: ${request.message}.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void decideApprovalRequest(
+    String requestId,
+    ApprovalState decision, {
+    bool forwardToCustomer = false,
+    String? comment,
+  }) {
+    final index = _approvalRequests.indexWhere(
+      (request) => request.id == requestId,
+    );
+    if (index == -1) return;
+    final request = _approvalRequests[index];
+    final now = DateTime.now();
+    final car = _cars.where((item) => item.id == request.carId).firstOrNull;
+    if (forwardToCustomer && car != null) {
+      _approvalRequests[index] = request.copyWith(
+        forwardedToCustomer: true,
+        ownerComment: comment,
+        updatedAt: now,
+      );
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: request.jobId,
+        title: 'Approval sent to customer',
+        message: request.message,
+        createdAt: now,
+      );
+      _notify(
+        userId: car.userId,
+        title: 'Approval needed',
+        message: '${car.carNumber}: ${request.message}.',
+        createdAt: now,
+      );
+    } else {
+      _approvalRequests[index] = request.copyWith(
+        status: decision,
+        ownerComment: comment,
+        updatedAt: now,
+      );
+      if (car != null) {
+        _addTimelineEvent(
+          carId: car.id,
+          jobId: request.jobId,
+          title: 'Owner decision',
+          message: '${request.message} was ${decision.label}.',
+          createdAt: now,
+          audiences: const [TimelineAudience.owner, TimelineAudience.staff],
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  void customerDecideApprovalRequest(
+    String requestId,
+    ApprovalState decision, {
+    String? comment,
+  }) {
+    final index = _approvalRequests.indexWhere(
+      (request) => request.id == requestId,
+    );
+    if (index == -1) return;
+    final request = _approvalRequests[index];
+    if (!request.forwardedToCustomer) return;
+    final now = DateTime.now();
+    _approvalRequests[index] = request.copyWith(
+      status: decision,
+      customerComment: comment,
+      updatedAt: now,
+    );
+    final car = _cars.where((item) => item.id == request.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: request.jobId,
+        title: 'Customer decision',
+        message: '${request.message} was ${decision.label}.',
+        createdAt: now,
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Customer decision',
+        message: '${car.carNumber}: ${request.message} was ${decision.label}.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void sendStaffProgressUpdate({
+    required String jobId,
+    required String message,
+    List<String> photoPaths = const [],
+  }) {
+    final job = _jobs.where((item) => item.id == jobId).firstOrNull;
+    if (job == null || message.trim().isEmpty) return;
+    final now = DateTime.now();
+    final senderId = session?.user.id ?? job.masterMechanicId ?? ownerUser.id;
+    final update = ProgressUpdate(
+      id: 'update-${now.microsecondsSinceEpoch}',
+      jobId: job.id,
+      carId: job.carId,
+      senderId: senderId,
+      message: message.trim(),
+      photoPaths: photoPaths.where((path) => path.trim().isNotEmpty).toList(),
+      createdAt: now,
+    );
+    _progressUpdates.insert(0, update);
+    final car = _cars.where((item) => item.id == job.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: 'Progress update',
+        message: '${staffName(senderId)} shared: ${update.message}',
+        createdAt: now,
+        audiences: const [TimelineAudience.owner, TimelineAudience.staff],
+      );
+      _notify(
+        userId: ownerUser.id,
+        title: 'Staff update',
+        message: '${car.carNumber}: ${update.message}.',
+        createdAt: now,
+      );
+    }
+    notifyListeners();
+  }
+
+  void ownerHandleProgressUpdate(String updateId, {required bool forward}) {
+    final index = _progressUpdates.indexWhere(
+      (update) => update.id == updateId,
+    );
+    if (index == -1) return;
+    final update = _progressUpdates[index];
+    final now = DateTime.now();
+    _progressUpdates[index] = update.copyWith(
+      forwardedToCustomer: forward,
+      keptInternal: !forward,
+    );
+    final car = _cars.where((item) => item.id == update.carId).firstOrNull;
+    if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: update.jobId,
+        title: forward ? 'Update sent to customer' : 'Update kept internal',
+        message: update.message,
+        createdAt: now,
+        audiences: forward
+            ? const [
+                TimelineAudience.owner,
+                TimelineAudience.staff,
+                TimelineAudience.customer,
+              ]
+            : const [TimelineAudience.owner, TimelineAudience.staff],
+      );
+      if (forward) {
+        _notify(
+          userId: car.userId,
+          title: 'Garage update',
+          message: '${car.carNumber}: ${update.message}.',
+          createdAt: now,
+        );
+        _messages.add(
+          SupportMessage(
+            id: 'msg-${now.microsecondsSinceEpoch}',
+            userId: car.userId,
+            topic: 'Garage update',
+            message: update.message,
+            createdAt: now,
+            carId: car.id,
+            sentByOwner: true,
+            attachmentPath: update.photoPaths.isEmpty
+                ? null
+                : update.photoPaths.first,
+          ),
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  void submitAttendance({
+    String? staffUserId,
+    AttendanceStatus status = AttendanceStatus.present,
+    String notes = '',
+  }) {
+    final userId = staffUserId ?? session?.user.id;
+    if (userId == null) return;
+    final existing = todayAttendanceForStaff(userId);
+    if (existing != null) return;
+    final now = DateTime.now();
+    _attendanceRecords.insert(
+      0,
+      StaffAttendance(
+        id: 'att-${now.microsecondsSinceEpoch}',
+        staffUserId: userId,
+        date: DateTime(now.year, now.month, now.day),
+        checkInTime: now,
+        status: status,
+        locationVerification: VerificationResult.verified,
+        faceVerification: VerificationResult.unavailable,
+        notes: notes.trim().isEmpty
+            ? 'Face verification placeholder is ready for setup.'
+            : notes.trim(),
+      ),
+    );
+    _notify(
+      userId: ownerUser.id,
+      title: 'Attendance marked',
+      message: '${staffName(userId)} marked ${status.label}.',
+      createdAt: now,
+    );
+    notifyListeners();
+  }
+
+  void correctAttendance({
+    required String attendanceId,
+    required AttendanceStatus status,
+    required String reason,
+  }) {
+    final index = _attendanceRecords.indexWhere(
+      (record) => record.id == attendanceId,
+    );
+    if (index == -1) return;
+    _attendanceRecords[index] = _attendanceRecords[index].copyWith(
+      status: status,
+      correctedByOwner: true,
+      correctionReason: reason.trim(),
+    );
+    notifyListeners();
+  }
+
+  void applyLeave({
+    required DateTime startDate,
+    required DateTime endDate,
+    required String leaveType,
+    required String reason,
+    String? attachmentPath,
+  }) {
+    final currentSession = session;
+    if (currentSession == null || !currentSession.role.isStaff) return;
+    final now = DateTime.now();
+    _leaveRequests.insert(
+      0,
+      LeaveRequest(
+        id: 'leave-${now.microsecondsSinceEpoch}',
+        staffUserId: currentSession.user.id,
+        startDate: startDate,
+        endDate: endDate,
+        leaveType: leaveType.trim().isEmpty ? 'Leave' : leaveType.trim(),
+        reason: reason.trim(),
+        status: ApprovalState.pending,
+        attachmentPath: attachmentPath,
+        createdAt: now,
+      ),
+    );
+    _notify(
+      userId: ownerUser.id,
+      title: 'Leave request',
+      message: '${currentSession.user.name} submitted a leave request.',
+      createdAt: now,
+    );
+    notifyListeners();
+  }
+
+  void decideLeaveRequest(
+    String leaveRequestId,
+    ApprovalState decision, {
+    String? comment,
+  }) {
+    final index = _leaveRequests.indexWhere(
+      (request) => request.id == leaveRequestId,
+    );
+    if (index == -1) return;
+    final request = _leaveRequests[index];
+    _leaveRequests[index] = request.copyWith(
+      status: decision,
+      ownerComment: comment,
+    );
+    _notify(
+      userId: request.staffUserId,
+      title: 'Leave ${decision.label}',
+      message: 'Your leave request was ${decision.label}.',
+      createdAt: DateTime.now(),
+    );
+    notifyListeners();
+  }
+
+  void recordAdvance({
+    required String staffUserId,
+    required double amount,
+    required String reason,
+    required String cutMethod,
+  }) {
+    if (staffProfileForUser(staffUserId) == null || amount <= 0) return;
+    final now = DateTime.now();
+    _advances.insert(
+      0,
+      StaffAdvance(
+        id: 'advance-${now.microsecondsSinceEpoch}',
+        staffUserId: staffUserId,
+        amount: amount,
+        date: now,
+        reason: reason.trim(),
+        cutMethod: cutMethod.trim().isEmpty
+            ? 'Deduct from salary'
+            : cutMethod.trim(),
+        remainingAmount: amount,
+        status: AdvanceStatus.active,
+      ),
+    );
+    _notify(
+      userId: staffUserId,
+      title: 'Advance recorded',
+      message: 'Advance of ${amount.toStringAsFixed(0)} was recorded.',
+      createdAt: now,
+    );
+    notifyListeners();
+  }
+
+  SalaryRecord? generateSalaryRecord({
+    required String staffUserId,
+    required String monthLabel,
+    double bonus = 0,
+    double manualDeduction = 0,
+  }) {
+    final profile = staffProfileForUser(staffUserId);
+    if (profile == null) return null;
+    final records = attendanceForStaff(staffUserId);
+    final presentDays = records
+        .where((record) => record.status == AttendanceStatus.present)
+        .length;
+    final leaveDays = records
+        .where((record) => record.status == AttendanceStatus.leave)
+        .length;
+    final absentDays = records
+        .where((record) => record.status == AttendanceStatus.absent)
+        .length;
+    final halfDays = records
+        .where((record) => record.status == AttendanceStatus.halfDay)
+        .length;
+    final lateMarks = records
+        .where((record) => record.status == AttendanceStatus.late)
+        .length;
+    final advanceDeduction = advancesForStaff(staffUserId)
+        .where((advance) => advance.status == AdvanceStatus.active)
+        .fold<double>(
+          0,
+          (sum, advance) =>
+              sum + advance.remainingAmount.clamp(0, 2500).toDouble(),
+        );
+    final dailyRate = profile.salary / 26;
+    final finalPayable =
+        profile.salary -
+        (absentDays * dailyRate) -
+        (halfDays * dailyRate * 0.5) -
+        advanceDeduction -
+        manualDeduction +
+        bonus;
+    final now = DateTime.now();
+    final record = SalaryRecord(
+      id: 'salary-${now.microsecondsSinceEpoch}',
+      staffUserId: staffUserId,
+      monthLabel: monthLabel.trim().isEmpty
+          ? 'Current Month'
+          : monthLabel.trim(),
+      baseSalary: profile.salary,
+      presentDays: presentDays,
+      leaveDays: leaveDays,
+      absentDays: absentDays,
+      halfDays: halfDays,
+      lateMarks: lateMarks,
+      advanceDeduction: advanceDeduction,
+      bonus: bonus,
+      manualDeduction: manualDeduction,
+      finalPayable: finalPayable < 0 ? 0 : finalPayable,
+      generatedAt: now,
+    );
+    _salaryRecords.insert(0, record);
+    _staffDocuments.insert(
+      0,
+      StaffDocument(
+        id: 'staff-doc-${now.microsecondsSinceEpoch}',
+        staffUserId: staffUserId,
+        title: '${record.monthLabel} Payslip',
+        category: 'Payslip',
+        amount: record.finalPayable,
+        createdAt: now,
+      ),
+    );
+    _notify(
+      userId: staffUserId,
+      title: 'Payslip generated',
+      message: '${record.monthLabel} salary record is ready.',
+      createdAt: now,
+    );
+    notifyListeners();
+    return record;
+  }
+
+  void markSalaryPaid(String salaryRecordId) {
+    final index = _salaryRecords.indexWhere(
+      (record) => record.id == salaryRecordId,
+    );
+    if (index == -1) return;
+    _salaryRecords[index] = _salaryRecords[index].copyWith(isPaid: true);
+    notifyListeners();
+  }
+
   void decideDocument(
     String documentId,
     ApprovalState decision, {
@@ -765,14 +2064,49 @@ class AppController extends ChangeNotifier {
       customerComment: comment,
       updatedAt: DateTime.now(),
     );
+    final jobIndex = _jobs.indexWhere((job) => job.id == existing.jobId);
+    final car = _cars.where((item) => item.id == existing.carId).firstOrNull;
+    if (existing.type == DocumentType.jobCard && jobIndex >= 0) {
+      final job = _jobs[jobIndex];
+      if (decision == ApprovalState.approved) {
+        _jobs[jobIndex] = job.copyWith(status: JobStatus.workInProgress);
+        if (car != null) {
+          _addTimelineEvent(
+            carId: car.id,
+            jobId: job.id,
+            title: 'Customer approved',
+            message:
+                '${existing.title} was approved. Work In Progress can begin.',
+            createdAt: DateTime.now(),
+          );
+        }
+      } else if (decision == ApprovalState.rejected && car != null) {
+        _addTimelineEvent(
+          carId: car.id,
+          jobId: job.id,
+          title: 'Customer rejected',
+          message:
+              '${existing.title} needs changes${comment == null || comment.isEmpty ? '.' : ': $comment'}',
+          createdAt: DateTime.now(),
+        );
+      }
+      if (job.masterMechanicId != null) {
+        _notify(
+          userId: job.masterMechanicId!,
+          title: 'Job card ${decision.label}',
+          message: '${existing.title} was ${decision.label}.',
+          createdAt: DateTime.now(),
+        );
+      }
+    }
 
     _notifications.insert(
       0,
       AppNotification(
         id: 'note-${DateTime.now().millisecondsSinceEpoch}',
         userId: DemoSeed.ownerUser.id,
-        title: '${existing.type.label} ${decision.name}',
-        message: '${existing.title} was ${decision.name} by the customer.',
+        title: '${existing.type.label} ${decision.label}',
+        message: '${existing.title} was ${decision.label} by the customer.',
         createdAt: DateTime.now(),
       ),
     );
@@ -792,8 +2126,13 @@ class AppController extends ChangeNotifier {
       status: status,
       pickupRequired: status == JobStatus.onRoad
           ? false
+          : status == JobStatus.deliveryScheduled
+          ? true
           : _jobs[index].pickupRequired,
-      pickupState: status == JobStatus.onRoad
+      pickupState:
+          status == JobStatus.onRoad ||
+              status == JobStatus.received ||
+              status == JobStatus.pickUpDone
           ? PickupState.completed
           : _jobs[index].pickupState,
     );
@@ -801,6 +2140,13 @@ class AppController extends ChangeNotifier {
         .where((item) => item.id == _jobs[index].carId)
         .firstOrNull;
     if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: jobId,
+        title: status.label,
+        message: '${car.carNumber} moved to ${status.label}.',
+        createdAt: DateTime.now(),
+      );
       _notifications.insert(
         0,
         AppNotification(
@@ -820,11 +2166,24 @@ class AppController extends ChangeNotifier {
     required String personName,
     required String personPhone,
   }) {
+    final matchingMechanic = mechanicProfiles
+        .where(
+          (profile) =>
+              _normalizeIndianPhoneForStorage(profile.phone) ==
+              _normalizeIndianPhoneForStorage(personPhone),
+        )
+        .firstOrNull;
+    if (matchingMechanic != null) {
+      assignPickupMechanic(jobId, matchingMechanic.userId);
+      return;
+    }
     final index = _jobs.indexWhere((job) => job.id == jobId);
     if (index == -1) return;
     final job = _jobs[index];
     final car = _cars.where((item) => item.id == job.carId).firstOrNull;
-    final isDelivery = job.status == JobStatus.completed;
+    final isDelivery =
+        job.status == JobStatus.completed ||
+        job.status == JobStatus.deliveryScheduled;
     final cleanName = personName.trim().isEmpty
         ? isDelivery
               ? 'Delivery executive'
@@ -838,6 +2197,14 @@ class AppController extends ChangeNotifier {
       pickupPersonPhone: cleanPhone,
     );
     if (car != null) {
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: job.id,
+        title: isDelivery ? 'Delivery scheduled' : 'Pickup mechanic assigned',
+        message:
+            '$cleanName${cleanPhone.isEmpty ? '' : ' ($cleanPhone)'} is assigned for ${car.carNumber}.',
+        createdAt: DateTime.now(),
+      );
       _notifications.insert(
         0,
         AppNotification(
@@ -883,6 +2250,9 @@ class AppController extends ChangeNotifier {
         _jobs[existingIndex].status == JobStatus.completed;
     if (existingIndex >= 0) {
       _jobs[existingIndex] = _jobs[existingIndex].copyWith(
+        status: isDeliveryRequest
+            ? JobStatus.deliveryScheduled
+            : JobStatus.pickUpScheduled,
         pickupRequired: true,
         pickupState: PickupState.requested,
         pickupTime: pickupTime,
@@ -896,7 +2266,7 @@ class AppController extends ChangeNotifier {
           id: 'job-${DateTime.now().millisecondsSinceEpoch}',
           userId: car.userId,
           carId: car.id,
-          status: JobStatus.received,
+          status: JobStatus.pickUpScheduled,
           expectedCompletion: DateTime.now().add(const Duration(days: 1)),
           pickupTime: pickupTime,
           pickupRequired: true,
@@ -912,9 +2282,7 @@ class AppController extends ChangeNotifier {
       AppNotification(
         id: 'note-${DateTime.now().millisecondsSinceEpoch}',
         userId: ownerUser.id,
-        title: isDeliveryRequest
-            ? 'Delivery requested'
-            : 'Pickup and drop requested',
+        title: isDeliveryRequest ? 'Delivery scheduled' : 'Pickup scheduled',
         message:
             '${car.carNumber} requested ${isDeliveryRequest ? 'delivery' : 'pickup'} for ${_formatWhatsappDate(pickupTime)}.',
         createdAt: DateTime.now(),
@@ -925,19 +2293,27 @@ class AppController extends ChangeNotifier {
       AppNotification(
         id: 'note-${DateTime.now().millisecondsSinceEpoch + 1}',
         userId: car.userId,
-        title: isDeliveryRequest
-            ? 'Delivery requested'
-            : 'Pickup and drop requested',
+        title: isDeliveryRequest ? 'Delivery Scheduled' : 'Pick Up Scheduled',
         message:
-            '${isDeliveryRequest ? 'Delivery' : 'Pickup and drop'} is requested for ${car.carNumber} at ${_formatWhatsappDate(pickupTime)}.',
+            '${isDeliveryRequest ? 'Delivery' : 'Pickup'} is scheduled for ${car.carNumber} at ${_formatWhatsappDate(pickupTime)}.',
         createdAt: DateTime.now(),
       ),
+    );
+    _addTimelineEvent(
+      carId: car.id,
+      jobId: existingIndex >= 0
+          ? _jobs[existingIndex].id
+          : _jobs.firstWhere((job) => job.carId == car.id).id,
+      title: isDeliveryRequest ? 'Delivery scheduled' : 'Pickup scheduled',
+      message:
+          '${isDeliveryRequest ? 'Delivery' : 'Pickup'} scheduled for ${_formatWhatsappDate(pickupTime)}.',
+      createdAt: DateTime.now(),
     );
     _messages.add(
       SupportMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         userId: car.userId,
-        topic: isDeliveryRequest ? 'Delivery' : 'Pickup and drop',
+        topic: isDeliveryRequest ? 'Delivery' : 'Pickup',
         message:
             '${isDeliveryRequest ? 'Delivery' : 'Pickup'} requested for ${_formatWhatsappDate(pickupTime)}${pickupAddress == null || pickupAddress.isEmpty ? '' : ' at $pickupAddress'}.',
         createdAt: DateTime.now(),
@@ -953,49 +2329,73 @@ class AppController extends ChangeNotifier {
     final car = _cars
         .where((item) => item.id == _jobs[index].carId)
         .firstOrNull;
-    final isDelivery = _jobs[index].status == JobStatus.completed;
+    final isDelivery =
+        _jobs[index].status == JobStatus.completed ||
+        _jobs[index].status == JobStatus.deliveryScheduled;
+    final now = DateTime.now();
     _jobs[index] = _jobs[index].copyWith(
       pickupRequired: !isDelivery,
       pickupState: PickupState.completed,
-      status: isDelivery ? JobStatus.onRoad : _jobs[index].status,
+      status: isDelivery ? JobStatus.onRoad : JobStatus.pickUpDone,
     );
     if (car != null) {
       if (proofImagePath != null && proofImagePath.trim().isNotEmpty) {
         _photoUpdates.insert(
           0,
           GaragePhotoUpdate(
-            id: 'photo-${DateTime.now().millisecondsSinceEpoch}',
+            id: 'photo-${now.microsecondsSinceEpoch}',
             userId: car.userId,
             carId: car.id,
             imagePath: proofImagePath.trim(),
             caption: isDelivery
                 ? 'Delivery completed and vehicle handed over.'
-                : 'Pickup completed and vehicle received at garage.',
-            createdAt: DateTime.now(),
+                : 'Pickup done and vehicle is on the way to garage receiving.',
+            createdAt: now,
           ),
         );
       }
+      _addTimelineEvent(
+        carId: car.id,
+        jobId: _jobs[index].id,
+        title: isDelivery ? 'On Road' : 'Pick Up Done',
+        message: isDelivery
+            ? '${car.carNumber} is On Road.'
+            : '${car.carNumber} pickup is done.',
+        createdAt: now,
+      );
       _notifications.insert(
         0,
         AppNotification(
-          id: 'note-${DateTime.now().millisecondsSinceEpoch + 1}',
+          id: 'note-${now.microsecondsSinceEpoch + 1}',
           userId: car.userId,
-          title: isDelivery ? 'Delivery completed' : 'Pickup completed',
+          title: isDelivery ? 'Delivery completed' : 'Pick Up Done',
           message: isDelivery
               ? '${car.carNumber} is back on road.'
-              : '${car.carNumber} has been received by the garage.',
-          createdAt: DateTime.now(),
+              : '${car.carNumber} pickup is done and receiving is next.',
+          createdAt: now,
+        ),
+      );
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: 'note-${now.microsecondsSinceEpoch + 2}',
+          userId: ownerUser.id,
+          title: isDelivery ? 'Delivery completed' : 'Pick Up Done',
+          message: isDelivery
+              ? '${car.carNumber} is On Road.'
+              : '${car.carNumber} is ready to be marked Received.',
+          createdAt: now,
         ),
       );
       _messages.add(
         SupportMessage(
-          id: 'msg-${DateTime.now().millisecondsSinceEpoch + 2}',
+          id: 'msg-${now.microsecondsSinceEpoch + 3}',
           userId: car.userId,
           topic: isDelivery ? 'Delivery' : 'Pickup',
           message: isDelivery
-              ? '${car.carNumber} delivery is complete. Vehicle is back on road.'
-              : '${car.carNumber} pickup is complete. Vehicle is now at the garage.',
-          createdAt: DateTime.now(),
+              ? '${car.carNumber} delivery is complete. Vehicle is On Road.'
+              : '${car.carNumber} pickup is done. Garage receiving will be updated soon.',
+          createdAt: now,
           carId: car.id,
           sentByOwner: true,
           attachmentPath: proofImagePath,
@@ -1152,9 +2552,7 @@ class AppController extends ChangeNotifier {
       title: draft.documentNumber,
       items: draft.items,
       total: draft.total,
-      approvalState:
-          draft.type == DocumentType.invoice ||
-              draft.type == DocumentType.jobCard
+      approvalState: draft.type == DocumentType.invoice
           ? ApprovalState.approved
           : ApprovalState.pending,
       paymentState: PaymentState.pending,
@@ -1172,9 +2570,8 @@ class AppController extends ChangeNotifier {
           }
           break;
         case DocumentType.jobCard:
-          if (relatedJob.status == JobStatus.received ||
-              relatedJob.status == JobStatus.underInspection) {
-            setJobStatus(relatedJob.id, JobStatus.workInProgress);
+          if (relatedJob.status == JobStatus.received) {
+            setJobStatus(relatedJob.id, JobStatus.underInspection);
           }
           break;
         case DocumentType.invoice:
@@ -1573,6 +2970,71 @@ class AppController extends ChangeNotifier {
         'Pickup time: ${_formatWhatsappDate(pickupTime)}\n'
         '${pickupAddress == null || pickupAddress.isEmpty ? '' : 'Address: $pickupAddress\n'}'
         'Location access: ${locationAccessGranted ? 'Approved' : 'Not approved'}';
+  }
+
+  bool _jobVisibleToStaff(ServiceJob job, String staffUserId) {
+    if (job.pickupMechanicId == staffUserId) return true;
+    if (job.masterMechanicId == staffUserId) return true;
+    if (job.assignedMechanicIds.contains(staffUserId)) return true;
+    return _workTasks.any(
+      (task) =>
+          task.jobId == job.id &&
+          (task.mechanicId == staffUserId ||
+              task.masterMechanicId == staffUserId),
+    );
+  }
+
+  void _setStaffWorkStatus(String staffUserId, StaffWorkStatus status) {
+    final index = _staffProfiles.indexWhere(
+      (profile) => profile.userId == staffUserId,
+    );
+    if (index == -1) return;
+    _staffProfiles[index] = _staffProfiles[index].copyWith(workStatus: status);
+  }
+
+  void _notify({
+    required String userId,
+    required String title,
+    required String message,
+    required DateTime createdAt,
+  }) {
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${createdAt.microsecondsSinceEpoch}-${_notifications.length}',
+        userId: userId,
+        title: title,
+        message: message,
+        createdAt: createdAt,
+      ),
+    );
+  }
+
+  void _addTimelineEvent({
+    required String carId,
+    required String jobId,
+    required String title,
+    required String message,
+    required DateTime createdAt,
+    List<TimelineAudience> audiences = const [
+      TimelineAudience.owner,
+      TimelineAudience.staff,
+      TimelineAudience.customer,
+    ],
+  }) {
+    _timelineEvents.insert(
+      0,
+      CarTimelineEvent(
+        id: 'timeline-${createdAt.microsecondsSinceEpoch}-${_timelineEvents.length}',
+        carId: carId,
+        jobId: jobId,
+        title: title,
+        message: message,
+        createdAt: createdAt,
+        audiences: audiences,
+        actorUserId: session?.user.id,
+      ),
+    );
   }
 
   String _formatWhatsappDate(DateTime value) {

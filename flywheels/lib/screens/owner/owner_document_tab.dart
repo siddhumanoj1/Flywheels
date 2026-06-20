@@ -7,6 +7,7 @@ import 'package:flywheels/services/document_builder_service.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
 import 'package:flywheels/widgets/document_template_preview.dart';
+import 'package:flywheels/widgets/exact_icon.dart';
 import 'package:flutter/material.dart';
 
 class OwnerDocumentTab extends StatefulWidget {
@@ -195,12 +196,12 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       segments: const [
         ButtonSegment<bool>(
           value: false,
-          icon: Icon(Icons.edit_document),
+          icon: ExactIcon(Icons.edit_document),
           label: Text('Document Studio'),
         ),
         ButtonSegment<bool>(
           value: true,
-          icon: Icon(Icons.library_books_outlined),
+          icon: ExactIcon(Icons.library_books_outlined),
           label: Text('Document Library'),
         ),
       ],
@@ -442,7 +443,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               IconButton(
                 tooltip: 'Close',
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded),
+                icon: const ExactIcon(Icons.close_rounded),
               ),
             ],
           ),
@@ -467,7 +468,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _downloadDraftPdf();
               },
-              icon: const Icon(Icons.download_rounded),
+              icon: const ExactIcon(Icons.download_rounded),
             ),
             IconButton.outlined(
               tooltip: 'WhatsApp',
@@ -475,7 +476,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _shareDraftOnWhatsapp();
               },
-              icon: const Icon(Icons.ios_share_rounded),
+              icon: const ExactIcon(Icons.ios_share_rounded),
             ),
             IconButton.outlined(
               tooltip: 'Send to chat',
@@ -483,7 +484,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _confirmSendDocument(sendToChat: true);
               },
-              icon: const Icon(Icons.chat_bubble_rounded),
+              icon: const ExactIcon(Icons.chat_bubble_rounded),
             ),
             IconButton.filled(
               tooltip: 'Save document',
@@ -491,7 +492,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _confirmSendDocument();
               },
-              icon: const Icon(Icons.library_add_rounded),
+              icon: const ExactIcon(Icons.library_add_rounded),
             ),
           ],
         );
@@ -629,7 +630,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               IconButton(
                 tooltip: 'Close',
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded),
+                icon: const ExactIcon(Icons.close_rounded),
               ),
             ],
           ),
@@ -654,7 +655,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _downloadDocumentPdf(document);
               },
-              icon: const Icon(Icons.download_rounded),
+              icon: const ExactIcon(Icons.download_rounded),
             ),
             IconButton.outlined(
               tooltip: 'Send to chat',
@@ -662,7 +663,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _sendDocumentToChat(document);
               },
-              icon: const Icon(Icons.chat_bubble_rounded),
+              icon: const ExactIcon(Icons.chat_bubble_rounded),
             ),
             IconButton.filled(
               tooltip: 'WhatsApp',
@@ -670,7 +671,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 Navigator.of(context).pop();
                 _shareDocumentOnWhatsapp(document);
               },
-              icon: const Icon(Icons.ios_share_rounded),
+              icon: const ExactIcon(Icons.ios_share_rounded),
             ),
           ],
         );
@@ -737,7 +738,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               ? null
               : controller.customerForCar(car.id);
           final searchable =
-              '${document.title} ${document.type.label} ${document.approvalState.name} ${document.paymentState.name} ${car?.carNumber ?? ''} ${customer?.name ?? ''}';
+              '${document.title} ${document.type.label} ${document.approvalState.label} ${document.paymentState.label} ${car?.carNumber ?? ''} ${customer?.name ?? ''}';
           final matchesQuery =
               needle.isEmpty || searchable.toLowerCase().contains(needle);
           final matchesFilter =
@@ -759,7 +760,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         const SizedBox(height: 12),
         TextField(
           decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search_rounded),
+            prefixIcon: ExactIcon(Icons.search_rounded),
             hintText: 'Search documents, customers, cars',
           ),
           onChanged: (value) => setState(() => _libraryQuery = value),
@@ -792,7 +793,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               tooltip: _libraryNewestFirst ? 'Newest first' : 'Oldest first',
               onPressed: () =>
                   setState(() => _libraryNewestFirst = !_libraryNewestFirst),
-              icon: Icon(
+              icon: ExactIcon(
                 _libraryNewestFirst ? Icons.south_rounded : Icons.north_rounded,
               ),
             ),
@@ -907,7 +908,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   runSpacing: 10,
                   children: DocumentType.values.map((type) {
                     return ChoiceChip(
-                      avatar: Icon(
+                      avatar: ExactIcon(
                         _documentTypeIcon(type),
                         size: 18,
                         color: _selectedType == type
@@ -1234,7 +1235,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               children: [
                 FilledButton.icon(
                   onPressed: _createDraftPreview,
-                  icon: const Icon(Icons.description_rounded),
+                  icon: const ExactIcon(Icons.description_rounded),
                   label: const Text('Create document'),
                 ),
               ],
@@ -1258,7 +1259,7 @@ class _AutoFillLine extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          const Icon(
+          const ExactIcon(
             Icons.check_circle_rounded,
             color: AppPalette.red,
             size: 18,
@@ -1309,7 +1310,10 @@ class _StudioChoiceCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(icon, color: selected ? AppPalette.white : AppPalette.black),
+            ExactIcon(
+              icon,
+              color: selected ? AppPalette.white : AppPalette.black,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -1462,7 +1466,7 @@ class _LineItemEditorState extends State<_LineItemEditor> {
               const Spacer(),
               IconButton(
                 onPressed: widget.onRemove,
-                icon: const Icon(Icons.delete_outline_rounded),
+                icon: const ExactIcon(Icons.delete_outline_rounded),
               ),
             ],
           ),
@@ -1584,34 +1588,34 @@ class _OwnerDocumentLibraryTile extends StatelessWidget {
               IconButton.outlined(
                 tooltip: 'Preview PDF',
                 onPressed: onPreview,
-                icon: const Icon(Icons.visibility_rounded),
+                icon: const ExactIcon(Icons.visibility_rounded),
               ),
               IconButton.outlined(
                 tooltip: 'Download PDF',
                 onPressed: onDownload,
-                icon: const Icon(Icons.download_rounded),
+                icon: const ExactIcon(Icons.download_rounded),
               ),
               IconButton.outlined(
                 tooltip: 'WhatsApp',
                 onPressed: onWhatsapp,
-                icon: const Icon(Icons.ios_share_rounded),
+                icon: const ExactIcon(Icons.ios_share_rounded),
               ),
               IconButton.outlined(
                 tooltip: 'Send to chat',
                 onPressed: onSendToChat,
-                icon: const Icon(Icons.chat_bubble_rounded),
+                icon: const ExactIcon(Icons.chat_bubble_rounded),
               ),
               if (document.type == DocumentType.invoice &&
                   document.paymentState != PaymentState.paid)
                 IconButton.outlined(
                   tooltip: 'Payment reminder',
                   onPressed: onPaymentReminder,
-                  icon: const Icon(Icons.notifications_active_rounded),
+                  icon: const ExactIcon(Icons.notifications_active_rounded),
                 ),
               IconButton.outlined(
                 tooltip: 'Delete document',
                 onPressed: onDelete,
-                icon: const Icon(Icons.delete_outline_rounded),
+                icon: const ExactIcon(Icons.delete_outline_rounded),
               ),
             ],
           ),
@@ -1621,7 +1625,7 @@ class _OwnerDocumentLibraryTile extends StatelessWidget {
             IconButton.outlined(
               tooltip: 'Mark as paid',
               onPressed: onMarkPaid,
-              icon: const Icon(Icons.price_check_rounded),
+              icon: const ExactIcon(Icons.price_check_rounded),
             ),
           ],
         ],

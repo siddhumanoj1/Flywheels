@@ -6,6 +6,7 @@ import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flywheels/widgets/odometer_otp_input.dart';
 import 'package:flywheels/widgets/speedometer_loader.dart';
+import 'package:flywheels/widgets/exact_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:sms_autofill/sms_autofill.dart';
 
@@ -150,7 +151,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Verify with OTP and we will open the right dashboard for customer or owner access automatically.',
+                                  'Verify with OTP and we will open the right dashboard automatically.',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                                 const SizedBox(height: 18),
@@ -179,7 +180,7 @@ class _LoginPageState extends State<LoginPage> {
                                         : hasCurrentOtp
                                         ? () => _openOtpDialog(controller)
                                         : () => _requestOtp(controller),
-                                    icon: Icon(
+                                    icon: ExactIcon(
                                       hasCurrentOtp
                                           ? Icons.dialpad_rounded
                                           : Icons.speed_rounded,
@@ -202,7 +203,7 @@ class _LoginPageState extends State<LoginPage> {
                                       borderRadius: BorderRadius.circular(18),
                                     ),
                                     child: Text(
-                                      'Development OTP: ${controller.generatedOtp}\nDemo owner number: 9876543210\nDemo customer number: 9123456789',
+                                      'Development OTP: ${controller.generatedOtp}\nOwner: 9876543210\nCustomer: 9123456789\nMaster Mechanic: 9000001001\nMechanic: 9000002001',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
@@ -393,7 +394,7 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
                       child: IconButton(
                         tooltip: isBusy ? 'Cancel' : 'Close',
                         onPressed: _closeOrCancel,
-                        icon: const Icon(Icons.close_rounded),
+                        icon: const ExactIcon(Icons.close_rounded),
                       ),
                     ),
                   ],
@@ -426,7 +427,7 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(left: 4),
-                      child: Icon(
+                      child: ExactIcon(
                         Icons.edit_rounded,
                         size: 16,
                         color: canEdit
@@ -467,7 +468,7 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.refresh_rounded),
+                        : const ExactIcon(Icons.refresh_rounded),
                     label: const Text('Resend OTP'),
                   ),
                 ),

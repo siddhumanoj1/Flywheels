@@ -2,6 +2,7 @@ import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/widgets/app_image.dart';
+import 'package:flywheels/widgets/exact_icon.dart';
 import 'package:flutter/material.dart';
 
 class AutomotiveControlButton extends StatelessWidget {
@@ -63,7 +64,7 @@ class AutomotiveControlButton extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, color: foreground, size: compact ? 19 : 22),
+                ExactIcon(icon, color: foreground, size: compact ? 19 : 22),
                 const SizedBox(height: 5),
                 Flexible(
                   child: FittedBox(
@@ -294,7 +295,7 @@ class _TimelineCarMarker extends StatelessWidget {
           ),
         ],
       ),
-      child: Icon(
+      child: ExactIcon(
         Icons.directions_car_filled_rounded,
         color: AppPalette.red,
         size: size * 0.68,
@@ -346,7 +347,7 @@ class _TimelineNode extends StatelessWidget {
       child: reached
           ? finalNode
                 ? Center(child: _FinishFlagIcon(size: size * 0.62))
-                : Icon(
+                : ExactIcon(
                     Icons.check_rounded,
                     color: AppPalette.white,
                     size: size * 0.62,
@@ -441,7 +442,7 @@ class MessengerBubble extends StatelessWidget {
               ),
               if (fromCurrentUser) ...[
                 const SizedBox(width: 6),
-                Icon(
+                ExactIcon(
                   message.isRead
                       ? Icons.done_all_rounded
                       : message.isDelivered
@@ -607,7 +608,7 @@ class _MessageAttachment extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
+          ExactIcon(
             _isPdf ? Icons.picture_as_pdf_rounded : Icons.attach_file_rounded,
             color: foreground,
           ),

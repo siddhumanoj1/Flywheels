@@ -4,6 +4,7 @@ import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/car_media_service.dart';
 import 'package:flywheels/widgets/app_image.dart';
+import 'package:flywheels/widgets/exact_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -140,7 +141,7 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
                     ),
                     onPressed: () =>
                         showWheelsListingSheet(context, picker: _picker),
-                    icon: const Icon(Icons.add_rounded),
+                    icon: const ExactIcon(Icons.add_rounded),
                   ),
               ],
             ),
@@ -543,7 +544,7 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
                                 );
                                 Navigator.of(context).pop();
                               },
-                              icon: const Icon(Icons.restart_alt_rounded),
+                              icon: const ExactIcon(Icons.restart_alt_rounded),
                               label: const Text('Reset'),
                             ),
                           ),
@@ -576,7 +577,7 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
                                 });
                                 Navigator.of(context).pop();
                               },
-                              icon: const Icon(Icons.check_rounded),
+                              icon: const ExactIcon(Icons.check_rounded),
                               label: const Text('Apply'),
                             ),
                           ),
@@ -623,7 +624,7 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
                 ..._WheelsSort.values.map((sort) {
                   final selected = sort == _sort;
                   return ListTile(
-                    leading: Icon(
+                    leading: ExactIcon(
                       selected
                           ? Icons.radio_button_checked_rounded
                           : Icons.radio_button_off_rounded,
@@ -667,7 +668,7 @@ class _WheelsTopButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
       onPressed: onPressed,
-      icon: Icon(icon, size: 18),
+      icon: ExactIcon(icon, size: 18),
       label: Text(label),
     );
   }
@@ -772,7 +773,7 @@ class _WheelsReelItem extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      const Icon(
+                      const ExactIcon(
                         Icons.keyboard_arrow_up_rounded,
                         color: AppPalette.white,
                         size: 30,
@@ -871,7 +872,7 @@ class _VideoMediaView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          const ExactIcon(
             Icons.play_circle_fill_rounded,
             color: AppPalette.white,
             size: 58,
@@ -912,7 +913,7 @@ class _OverlayBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: AppPalette.white, size: 15),
+          ExactIcon(icon, color: AppPalette.white, size: 15),
           const SizedBox(width: 5),
           Text(
             label,
@@ -943,7 +944,7 @@ class _WheelsEmptyState extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.directions_car_filled_rounded, size: 44),
+                const ExactIcon(Icons.directions_car_filled_rounded, size: 44),
                 const SizedBox(height: 12),
                 Text(
                   'No cars found',
@@ -1012,7 +1013,10 @@ void _showListingDetails(BuildContext context, CarSaleListing listing) {
                     ),
                   ),
                   if (listing.isGarageVerified)
-                    const Icon(Icons.verified_rounded, color: AppPalette.red),
+                    const ExactIcon(
+                      Icons.verified_rounded,
+                      color: AppPalette.red,
+                    ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -1119,7 +1123,7 @@ void _showListingDetails(BuildContext context, CarSaleListing listing) {
                       ),
                     );
                   },
-                  icon: const Icon(Icons.chat_bubble_outline_rounded),
+                  icon: const ExactIcon(Icons.chat_bubble_outline_rounded),
                   label: const Text('Contact'),
                 ),
               ),
@@ -1149,7 +1153,7 @@ class _DetailChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16),
+          ExactIcon(icon, size: 16),
           const SizedBox(width: 6),
           Text(
             label,
@@ -1189,7 +1193,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(
+              const ExactIcon(
                 Icons.motion_photos_auto_rounded,
                 color: AppPalette.red,
               ),
@@ -1221,7 +1225,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
                   foregroundColor: AppPalette.white,
                 ),
                 onPressed: () => _showOwnerWheelsActions(context),
-                icon: const Icon(Icons.add_rounded),
+                icon: const ExactIcon(Icons.add_rounded),
               ),
             ],
           ),
@@ -1234,12 +1238,12 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
           actionsBuilder: (listing) => [
             OutlinedButton.icon(
               onPressed: () => controller.rejectSaleListing(listing.id),
-              icon: const Icon(Icons.close_rounded),
+              icon: const ExactIcon(Icons.close_rounded),
               label: const Text('Reject'),
             ),
             FilledButton.icon(
               onPressed: () => controller.approveSaleListing(listing.id),
-              icon: const Icon(Icons.check_rounded),
+              icon: const ExactIcon(Icons.check_rounded),
               label: const Text('Approve'),
             ),
           ],
@@ -1256,12 +1260,12 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
                 picker: picker ?? ImagePicker(),
                 editingListing: listing,
               ),
-              icon: const Icon(Icons.edit_outlined),
+              icon: const ExactIcon(Icons.edit_outlined),
               label: const Text('Edit'),
             ),
             OutlinedButton.icon(
               onPressed: () => controller.markSaleListingSold(listing.id),
-              icon: const Icon(Icons.sell_rounded),
+              icon: const ExactIcon(Icons.sell_rounded),
               label: const Text('Mark sold'),
             ),
           ],
@@ -1304,7 +1308,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
                       ),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close_rounded),
+                        icon: const ExactIcon(Icons.close_rounded),
                       ),
                     ],
                   ),
@@ -1319,7 +1323,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
                           picker: picker ?? ImagePicker(),
                         );
                       },
-                      icon: const Icon(Icons.add_rounded),
+                      icon: const ExactIcon(Icons.add_rounded),
                       label: const Text('Post car for sale'),
                     ),
                   ),
@@ -1346,7 +1350,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
                                       controller.rejectSaleListing(listing.id);
                                       Navigator.of(context).pop();
                                     },
-                                    icon: const Icon(Icons.close_rounded),
+                                    icon: const ExactIcon(Icons.close_rounded),
                                     label: const Text('Reject'),
                                   ),
                                   FilledButton.icon(
@@ -1354,7 +1358,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
                                       controller.approveSaleListing(listing.id);
                                       Navigator.of(context).pop();
                                     },
-                                    icon: const Icon(Icons.check_rounded),
+                                    icon: const ExactIcon(Icons.check_rounded),
                                     label: const Text('Approve'),
                                   ),
                                 ],
@@ -1657,12 +1661,12 @@ Future<void> showWheelsListingSheet(
                           segments: [
                             ButtonSegment(
                               value: true,
-                              icon: const Icon(Icons.garage_outlined),
+                              icon: const ExactIcon(Icons.garage_outlined),
                               label: Text(isOwner ? 'Garage car' : 'My car'),
                             ),
                             const ButtonSegment(
                               value: false,
-                              icon: Icon(Icons.add_road_outlined),
+                              icon: ExactIcon(Icons.add_road_outlined),
                               label: Text('New car'),
                             ),
                           ],
@@ -1917,7 +1921,9 @@ Future<void> showWheelsListingSheet(
                                       onPressed: () => setSheetState(
                                         () => media.removeAt(index),
                                       ),
-                                      icon: const Icon(Icons.close_rounded),
+                                      icon: const ExactIcon(
+                                        Icons.close_rounded,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1946,7 +1952,7 @@ Future<void> showWheelsListingSheet(
                                 );
                               });
                             },
-                            icon: const Icon(Icons.photo_outlined),
+                            icon: const ExactIcon(Icons.photo_outlined),
                             label: const Text('Add picture'),
                           ),
                           OutlinedButton.icon(
@@ -1965,7 +1971,7 @@ Future<void> showWheelsListingSheet(
                                 );
                               });
                             },
-                            icon: const Icon(Icons.videocam_outlined),
+                            icon: const ExactIcon(Icons.videocam_outlined),
                             label: const Text('Add video'),
                           ),
                         ],
@@ -2077,7 +2083,7 @@ Future<void> showWheelsListingSheet(
                               ),
                             );
                           },
-                          icon: Icon(
+                          icon: ExactIcon(
                             isEditing
                                 ? Icons.save_outlined
                                 : Icons.publish_rounded,

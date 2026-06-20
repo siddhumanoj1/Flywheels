@@ -12,6 +12,7 @@ import 'package:flywheels/widgets/app_image.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flywheels/widgets/exact_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -244,7 +245,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                         if (image == null) return;
                         setSheetState(() => selectedImagePath = image.path);
                       },
-                      icon: const Icon(Icons.photo_outlined),
+                      icon: const ExactIcon(Icons.photo_outlined),
                       label: Text(
                         selectedImagePath == null
                             ? 'Use my car picture'
@@ -368,7 +369,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                       child: CustomPaint(painter: _MapPickerGridPainter()),
                     ),
                     const Center(
-                      child: Icon(
+                      child: ExactIcon(
                         Icons.location_pin,
                         color: AppPalette.red,
                         size: 42,
@@ -504,7 +505,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                               addressController.text = selectedAddress;
                             });
                           },
-                          icon: const Icon(Icons.map_outlined),
+                          icon: const ExactIcon(Icons.map_outlined),
                           label: const Text('Google Maps picker'),
                         ),
                       ),
@@ -521,7 +522,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                               }
                             });
                           },
-                          icon: const Icon(Icons.edit_location_alt_outlined),
+                          icon: const ExactIcon(
+                            Icons.edit_location_alt_outlined,
+                          ),
                           label: const Text('Manual entry'),
                         ),
                       ),
@@ -667,7 +670,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                           ? 'No validity date selected'
                           : formatShortDate(validUntil!),
                     ),
-                    trailing: const Icon(Icons.event_outlined),
+                    trailing: const ExactIcon(Icons.event_outlined),
                     onTap: () async {
                       final picked = await showDatePicker(
                         context: context,
@@ -872,7 +875,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                   ...history.map(
                     (job) => ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.timeline_rounded),
+                      leading: const ExactIcon(Icons.timeline_rounded),
                       title: Text(job.status.label),
                       subtitle: Text(
                         'ETA ${formatDateTime(job.expectedCompletion)} | Pickup ${job.pickupState.label}',
@@ -893,10 +896,10 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                   ...documents.map(
                     (document) => ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.receipt_long_outlined),
+                      leading: const ExactIcon(Icons.receipt_long_outlined),
                       title: Text(document.title),
                       subtitle: Text(
-                        '${document.type.label} | ${formatCurrency(document.total)} | ${document.paymentState.name}',
+                        '${document.type.label} | ${formatCurrency(document.total)} | ${document.paymentState.label}',
                       ),
                       trailing: PopupMenuButton<String>(
                         onSelected: (value) {
@@ -988,14 +991,14 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                   .firstOrNull;
               return ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.receipt_long_outlined),
+                leading: const ExactIcon(Icons.receipt_long_outlined),
                 title: Text(document.title),
                 subtitle: Text(
                   car == null
                       ? document.type.label
                       : '${document.type.label} | ${car.carNumber}',
                 ),
-                trailing: const Icon(Icons.attach_file_rounded),
+                trailing: const ExactIcon(Icons.attach_file_rounded),
                 onTap: () => Navigator.of(sheetContext).pop(document),
               );
             },
@@ -1307,7 +1310,7 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
                 onPressed: _pageIndex == 0
                     ? null
                     : () => _goToPage(_pageIndex - 1),
-                icon: const Icon(Icons.chevron_left_rounded),
+                icon: const ExactIcon(Icons.chevron_left_rounded),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -1345,7 +1348,7 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
                 onPressed: _pageIndex == _pageCount - 1
                     ? null
                     : () => _goToPage(_pageIndex + 1),
-                icon: const Icon(Icons.chevron_right_rounded),
+                icon: const ExactIcon(Icons.chevron_right_rounded),
               ),
             ],
           ),
@@ -1512,7 +1515,7 @@ class _AddCarCard extends StatelessWidget {
                       color: AppPalette.black,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
+                    child: const ExactIcon(
                       Icons.add,
                       color: AppPalette.white,
                       size: 24,
@@ -1912,7 +1915,7 @@ class _CustomerNextStepCard extends StatelessWidget {
                 color: AppPalette.red.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(data.icon, color: AppPalette.red),
+              child: ExactIcon(data.icon, color: AppPalette.red),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1937,7 +1940,7 @@ class _CustomerNextStepCard extends StatelessWidget {
             IconButton.filled(
               tooltip: data.tooltip,
               onPressed: data.onTap,
-              icon: const Icon(Icons.arrow_forward_rounded),
+              icon: const ExactIcon(Icons.arrow_forward_rounded),
             ),
           ],
         ),
@@ -1997,7 +2000,7 @@ class _CustomerNextStepCard extends StatelessWidget {
     if (workflowState == CarWorkflowState.onRoad) {
       return _CustomerNextStepData(
         icon: Icons.route_rounded,
-        title: 'On-Road',
+        title: 'On Road',
         subtitle:
             'Your car is back with you. You can request a quote or schedule pickup anytime.',
         tooltip: 'Request quote',
@@ -2069,7 +2072,7 @@ class _CustomerDocumentDigest extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
-            const Icon(Icons.folder_copy_outlined),
+            const ExactIcon(Icons.folder_copy_outlined),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -2092,7 +2095,7 @@ class _CustomerDocumentDigest extends StatelessWidget {
             IconButton.outlined(
               tooltip: 'Open document library',
               onPressed: onOpenBills,
-              icon: const Icon(Icons.arrow_forward_rounded),
+              icon: const ExactIcon(Icons.arrow_forward_rounded),
             ),
           ],
         ),
@@ -2125,7 +2128,7 @@ class _PickupStatusCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.local_shipping_outlined),
+                const ExactIcon(Icons.local_shipping_outlined),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -2171,7 +2174,7 @@ class _GaragePhotoFeed extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.photo_library_outlined),
+                const ExactIcon(Icons.photo_library_outlined),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -2272,12 +2275,19 @@ class _CustomerDocsTabState extends State<_CustomerDocsTab> {
 
     final documents = controller.documentsForCar(activeCar.id);
     final assetDocuments = controller.assetDocumentsForCar(activeCar.id);
+    final approvalRequests = controller.approvalRequests
+        .where(
+          (request) =>
+              request.carId == activeCar.id &&
+              request.status == ApprovalState.pending,
+        )
+        .toList();
     final needle = _query.trim().toLowerCase();
     final libraryDocuments =
         documents.where((document) {
           final carText =
               '${document.title} ${document.type.label} '
-              '${document.approvalState.name} ${document.paymentState.name}';
+              '${document.approvalState.label} ${document.paymentState.label}';
           final matchesQuery =
               needle.isEmpty || carText.toLowerCase().contains(needle);
           final matchesFilter =
@@ -2298,16 +2308,20 @@ class _CustomerDocsTabState extends State<_CustomerDocsTab> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 12),
+        if (approvalRequests.isNotEmpty) ...[
+          _CustomerApprovalRequestPanel(requests: approvalRequests),
+          const SizedBox(height: 12),
+        ],
         SegmentedButton<bool>(
           segments: const [
             ButtonSegment(
               value: false,
-              icon: Icon(Icons.edit_document),
+              icon: ExactIcon(Icons.edit_document),
               label: Text('Document Studio'),
             ),
             ButtonSegment(
               value: true,
-              icon: Icon(Icons.library_books_outlined),
+              icon: ExactIcon(Icons.library_books_outlined),
               label: Text('Document Library'),
             ),
           ],
@@ -2331,7 +2345,7 @@ class _CustomerDocsTabState extends State<_CustomerDocsTab> {
         ] else ...[
           TextField(
             decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
+              prefixIcon: ExactIcon(Icons.search_rounded),
               hintText: 'Search bills, estimates, invoices',
             ),
             onChanged: (value) => setState(() => _query = value),
@@ -2362,7 +2376,7 @@ class _CustomerDocsTabState extends State<_CustomerDocsTab> {
               IconButton.outlined(
                 tooltip: _newestFirst ? 'Newest first' : 'Oldest first',
                 onPressed: () => setState(() => _newestFirst = !_newestFirst),
-                icon: Icon(
+                icon: ExactIcon(
                   _newestFirst ? Icons.south_rounded : Icons.north_rounded,
                 ),
               ),
@@ -2384,6 +2398,83 @@ class _CustomerDocsTabState extends State<_CustomerDocsTab> {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _CustomerApprovalRequestPanel extends StatelessWidget {
+  const _CustomerApprovalRequestPanel({required this.requests});
+
+  final List<ApprovalRequest> requests;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Approvals needed',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 10),
+            ...requests.map(
+              (request) => Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppPalette.soft,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppPalette.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.message,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${request.reason} | ${request.urgency.label} | ${formatCurrency(request.amount)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              controller.customerDecideApprovalRequest(
+                                request.id,
+                                ApprovalState.rejected,
+                                comment: 'Not approved by customer.',
+                              ),
+                          icon: const ExactIcon(Icons.close_rounded),
+                          label: const Text('Reject'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () =>
+                              controller.customerDecideApprovalRequest(
+                                request.id,
+                                ApprovalState.approved,
+                              ),
+                          icon: const ExactIcon(Icons.done_rounded),
+                          label: const Text('Approve'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2416,7 +2507,7 @@ class _CustomerDocumentLibraryTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
+              ExactIcon(
                 document.type == DocumentType.invoice
                     ? Icons.receipt_long_rounded
                     : Icons.description_outlined,
@@ -2439,7 +2530,7 @@ class _CustomerDocumentLibraryTile extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
+            '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.label}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 10),
@@ -2449,28 +2540,38 @@ class _CustomerDocumentLibraryTile extends StatelessWidget {
             children: [
               OutlinedButton.icon(
                 onPressed: onOpen,
-                icon: const Icon(Icons.visibility_rounded),
+                icon: const ExactIcon(Icons.visibility_rounded),
                 label: const Text('Open'),
               ),
               OutlinedButton.icon(
                 onPressed: onDownload,
-                icon: const Icon(Icons.download_rounded),
+                icon: const ExactIcon(Icons.download_rounded),
                 label: const Text('PDF'),
               ),
               OutlinedButton.icon(
                 onPressed: onShare,
-                icon: const Icon(Icons.share_rounded),
+                icon: const ExactIcon(Icons.share_rounded),
                 label: const Text('WhatsApp'),
               ),
               if (document.type != DocumentType.invoice &&
-                  document.type != DocumentType.jobCard &&
                   document.approvalState == ApprovalState.pending)
                 FilledButton.icon(
                   onPressed: () => FlywheelsScope.of(
                     context,
                   ).decideDocument(document.id, ApprovalState.approved),
-                  icon: const Icon(Icons.done_rounded),
+                  icon: const ExactIcon(Icons.done_rounded),
                   label: const Text('Approve'),
+                ),
+              if (document.type != DocumentType.invoice &&
+                  document.approvalState == ApprovalState.pending)
+                OutlinedButton.icon(
+                  onPressed: () => FlywheelsScope.of(context).decideDocument(
+                    document.id,
+                    ApprovalState.rejected,
+                    comment: 'Please call before starting this work.',
+                  ),
+                  icon: const ExactIcon(Icons.close_rounded),
+                  label: const Text('Ask changes'),
                 ),
             ],
           ),
@@ -2577,7 +2678,7 @@ class _CustomerChatTab extends StatelessWidget {
                       value: 'document',
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.receipt_long_outlined),
+                        leading: ExactIcon(Icons.receipt_long_outlined),
                         title: Text('Document Library'),
                       ),
                     ),
@@ -2585,12 +2686,12 @@ class _CustomerChatTab extends StatelessWidget {
                       value: 'photo',
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.photo_library_outlined),
+                        leading: ExactIcon(Icons.photo_library_outlined),
                         title: Text('Gallery Photo'),
                       ),
                     ),
                   ],
-                  icon: const Icon(Icons.attach_file_rounded),
+                  icon: const ExactIcon(Icons.attach_file_rounded),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -2607,7 +2708,7 @@ class _CustomerChatTab extends StatelessWidget {
                 const SizedBox(width: 8),
                 IconButton.filled(
                   onPressed: onSend,
-                  icon: const Icon(Icons.send_rounded),
+                  icon: const ExactIcon(Icons.send_rounded),
                 ),
               ],
             ),
@@ -2673,7 +2774,7 @@ class _CustomerProfileTab extends StatelessWidget {
                 ),
                 IconButton.outlined(
                   onPressed: isPickingProfilePhoto ? null : onPickProfilePhoto,
-                  icon: Icon(
+                  icon: ExactIcon(
                     isPickingProfilePhoto
                         ? Icons.hourglass_top_rounded
                         : Icons.photo_camera_outlined,
@@ -2731,7 +2832,7 @@ class _CustomerProfileTab extends StatelessWidget {
                     ),
                     IconButton.outlined(
                       onPressed: onAddCar,
-                      icon: const Icon(Icons.add_rounded),
+                      icon: const ExactIcon(Icons.add_rounded),
                     ),
                   ],
                 ),
@@ -2760,7 +2861,7 @@ class _CustomerProfileTab extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: controller.logout,
-            icon: const Icon(Icons.logout_rounded),
+            icon: const ExactIcon(Icons.logout_rounded),
             label: const Text('Logout'),
           ),
         ),
@@ -2858,7 +2959,7 @@ class _VehicleDocumentVaultCard extends StatelessWidget {
                 ),
                 IconButton.outlined(
                   onPressed: onUpload,
-                  icon: const Icon(Icons.upload_file_rounded),
+                  icon: const ExactIcon(Icons.upload_file_rounded),
                 ),
               ],
             ),

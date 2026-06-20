@@ -5,7 +5,11 @@ import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flutter/material.dart';
 
 class SpeedometerLogoLoader extends StatefulWidget {
-  const SpeedometerLogoLoader({super.key, this.size = 220, this.logoSize = 106});
+  const SpeedometerLogoLoader({
+    super.key,
+    this.size = 220,
+    this.logoSize = 106,
+  });
 
   final double size;
   final double logoSize;
@@ -23,7 +27,7 @@ class _SpeedometerLogoLoaderState extends State<SpeedometerLogoLoader>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1180),
+      duration: const Duration(milliseconds: 2360),
     )..repeat();
   }
 
@@ -55,17 +59,21 @@ class _SpeedometerLogoLoaderState extends State<SpeedometerLogoLoader>
 class _SpeedometerThrobberPainter extends CustomPainter {
   const _SpeedometerThrobberPainter({required this.progress});
 
+  static const _fastRisePortion = 0.28;
+  static const _slowRisePortion = 0.44;
+  static const _halfProgress = 0.5;
+
   final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final eased = Curves.easeOutCubic.transform(progress);
+    final needleProgress = _needleProgress(progress);
     final center = size.center(Offset.zero);
     final radius = math.min(size.width, size.height) / 2 - 15;
     final rect = Rect.fromCircle(center: center, radius: radius);
     final startAngle = -math.pi * 1.18;
     final sweepAngle = math.pi * 1.36;
-    final activeSweep = sweepAngle * (0.12 + eased * 0.84);
+    final activeSweep = sweepAngle * (0.12 + needleProgress * 0.84);
     final pulse = 0.5 + (math.sin(progress * math.pi) * 0.5);
 
     final trackPaint = Paint()
@@ -143,5 +151,22 @@ class _SpeedometerThrobberPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SpeedometerThrobberPainter oldDelegate) {
     return oldDelegate.progress != progress;
+  }
+
+  double _needleProgress(double progress) {
+    if (progress <= _fastRisePortion) {
+      final riseProgress = progress / _fastRisePortion;
+      return Curves.easeOutCubic.transform(riseProgress) * _halfProgress;
+    }
+
+    final riseEnd = _fastRisePortion + _slowRisePortion;
+    if (progress <= riseEnd) {
+      final slowRiseProgress = (progress - _fastRisePortion) / _slowRisePortion;
+      return _halfProgress +
+          Curves.easeOutSine.transform(slowRiseProgress) * _halfProgress;
+    }
+
+    final returnProgress = (progress - riseEnd) / (1 - riseEnd);
+    return 1 - returnProgress;
   }
 }

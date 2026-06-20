@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flywheels/core/theme/app_theme.dart';
+import 'package:flywheels/widgets/exact_icon.dart';
 import 'package:flutter/material.dart';
 
 class AppImage extends StatelessWidget {
@@ -83,7 +84,7 @@ class _Placeholder extends StatelessWidget {
       height: height,
       color: AppPalette.soft,
       alignment: Alignment.center,
-      child: Icon(icon, color: AppPalette.muted),
+      child: ExactIcon(icon, color: AppPalette.muted),
     );
   }
 }

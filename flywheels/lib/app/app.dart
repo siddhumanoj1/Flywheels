@@ -6,6 +6,7 @@ import 'package:flywheels/screens/auth/login_page.dart';
 import 'package:flywheels/screens/customer/customer_home_page.dart';
 import 'package:flywheels/screens/owner/owner_home_page.dart';
 import 'package:flywheels/screens/shared/splash_page.dart';
+import 'package:flywheels/screens/staff/staff_home_pages.dart';
 import 'package:flutter/material.dart';
 
 class FlywheelsApp extends StatefulWidget {
@@ -65,6 +66,10 @@ class _FlywheelsHome extends StatelessWidget {
               ? const LoginPage()
               : controller.session!.role == UserRole.owner
               ? const OwnerHomePage()
+              : controller.session!.role == UserRole.masterMechanic
+              ? const MasterMechanicHomePage()
+              : controller.session!.role == UserRole.mechanic
+              ? const MechanicHomePage()
               : const CustomerHomePage(),
         );
       },
