@@ -43,6 +43,25 @@ class AppController extends ChangeNotifier {
   final List<CarSaleListing> _saleListings = List<CarSaleListing>.from(
     DemoSeed.saleListings,
   );
+  final List<StaffProfile> _staffProfiles = List<StaffProfile>.from(
+    DemoSeed.staffProfiles,
+  );
+  final List<AttendanceEntry> _attendanceEntries = List<AttendanceEntry>.from(
+    DemoSeed.attendanceEntries,
+  );
+  final List<SalaryAdvance> _salaryAdvances = List<SalaryAdvance>.from(
+    DemoSeed.salaryAdvances,
+  );
+  final List<LeaveRequest> _leaveRequests = List<LeaveRequest>.from(
+    DemoSeed.leaveRequests,
+  );
+  final List<SalarySlip> _salarySlips = List<SalarySlip>.from(
+    DemoSeed.salarySlips,
+  );
+  final List<StaffAssignmentProposal> _staffAssignmentProposals =
+      List<StaffAssignmentProposal>.from(DemoSeed.staffAssignmentProposals);
+  final List<WorkApprovalRequest> _workApprovalRequests =
+      List<WorkApprovalRequest>.from(DemoSeed.workApprovalRequests);
 
   GarageUser get ownerUser => _users.firstWhere(
     (user) => user.role == UserRole.owner,
@@ -152,6 +171,61 @@ class AppController extends ChangeNotifier {
             .toList()
           ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
     return List.unmodifiable(listings);
+  }
+
+  List<StaffProfile> get staffProfiles {
+    final staff = _staffProfiles.toList()
+      ..sort((left, right) {
+        if (left.role != right.role) {
+          return left.role.index.compareTo(right.role.index);
+        }
+        return left.name.compareTo(right.name);
+      });
+    return List.unmodifiable(staff);
+  }
+
+  List<StaffProfile> get masterMechanics => List.unmodifiable(
+    _staffProfiles.where((staff) => staff.role == StaffRole.masterMechanic),
+  );
+
+  List<StaffProfile> get mechanics => List.unmodifiable(
+    _staffProfiles.where((staff) => staff.role == StaffRole.mechanic),
+  );
+
+  List<AttendanceEntry> get attendanceEntries {
+    final entries = _attendanceEntries.toList()
+      ..sort((left, right) => right.loggedAt.compareTo(left.loggedAt));
+    return List.unmodifiable(entries);
+  }
+
+  List<SalaryAdvance> get salaryAdvances {
+    final advances = _salaryAdvances.toList()
+      ..sort((left, right) => right.requestedAt.compareTo(left.requestedAt));
+    return List.unmodifiable(advances);
+  }
+
+  List<LeaveRequest> get leaveRequests {
+    final requests = _leaveRequests.toList()
+      ..sort((left, right) => right.requestedAt.compareTo(left.requestedAt));
+    return List.unmodifiable(requests);
+  }
+
+  List<SalarySlip> get salarySlips {
+    final slips = _salarySlips.toList()
+      ..sort((left, right) => right.generatedAt.compareTo(left.generatedAt));
+    return List.unmodifiable(slips);
+  }
+
+  List<StaffAssignmentProposal> get staffAssignmentProposals {
+    final proposals = _staffAssignmentProposals.toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return List.unmodifiable(proposals);
+  }
+
+  List<WorkApprovalRequest> get workApprovalRequests {
+    final requests = _workApprovalRequests.toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return List.unmodifiable(requests);
   }
 
   CarProfile? get activeCar {
@@ -750,6 +824,552 @@ class AppController extends ChangeNotifier {
         .firstOrNull;
   }
 
+  StaffProfile? staffById(String staffId) {
+    return _staffProfiles.where((staff) => staff.id == staffId).firstOrNull;
+  }
+
+  StaffProfile? staffForUser(String userId) {
+    return _staffProfiles.where((staff) => staff.userId == userId).firstOrNull;
+  }
+
+  List<ServiceJob> jobsForStaff(String staffId) {
+    return jobs
+        .where(
+          (job) =>
+              job.masterMechanicId == staffId ||
+              job.mechanicIds.contains(staffId) ||
+              job.pickupPersonName == staffById(staffId)?.name,
+        )
+        .toList()
+      ..sort(_compareJobsByRecency);
+  }
+
+  List<StaffAssignmentProposal> proposalsForJob(String jobId) {
+    return _staffAssignmentProposals
+        .where((proposal) => proposal.jobId == jobId)
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<WorkApprovalRequest> workRequestsForJob(String jobId) {
+    return _workApprovalRequests
+        .where((request) => request.jobId == jobId)
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<AttendanceEntry> attendanceForStaff(String staffId) {
+    return _attendanceEntries
+        .where((entry) => entry.staffId == staffId)
+        .toList()
+      ..sort((left, right) => right.loggedAt.compareTo(left.loggedAt));
+  }
+
+  List<SalaryAdvance> advancesForStaff(String staffId) {
+    return _salaryAdvances
+        .where((advance) => advance.staffId == staffId)
+        .toList()
+      ..sort((left, right) => right.requestedAt.compareTo(left.requestedAt));
+  }
+
+  List<LeaveRequest> leavesForStaff(String staffId) {
+    return _leaveRequests.where((leave) => leave.staffId == staffId).toList()
+      ..sort((left, right) => right.requestedAt.compareTo(left.requestedAt));
+  }
+
+  List<SalarySlip> salarySlipsForStaff(String staffId) {
+    return _salarySlips.where((slip) => slip.staffId == staffId).toList()
+      ..sort((left, right) => right.generatedAt.compareTo(left.generatedAt));
+  }
+
+  void upsertStaffProfile({
+    String? staffId,
+    required String name,
+    required String phone,
+    required StaffRole role,
+    required String primarySkill,
+    required double monthlySalary,
+    bool isActive = true,
+  }) {
+    final trimmedName = name.trim().isEmpty ? role.label : name.trim();
+    final normalizedPhone = _normalizeIndianPhoneForStorage(phone);
+    if (staffId != null) {
+      final staffIndex = _staffProfiles.indexWhere(
+        (staff) => staff.id == staffId,
+      );
+      if (staffIndex == -1) return;
+      final existing = _staffProfiles[staffIndex];
+      _staffProfiles[staffIndex] = existing.copyWith(
+        name: trimmedName,
+        phone: normalizedPhone,
+        role: role,
+        primarySkill: primarySkill.trim().isEmpty
+            ? existing.primarySkill
+            : primarySkill.trim(),
+        monthlySalary: monthlySalary <= 0
+            ? existing.monthlySalary
+            : monthlySalary,
+        isActive: isActive,
+      );
+      final userIndex = _users.indexWhere((user) => user.id == existing.userId);
+      if (userIndex >= 0) {
+        _users[userIndex] = _users[userIndex].copyWith(
+          name: trimmedName,
+          phone: normalizedPhone,
+          role: role.userRole,
+        );
+      }
+      notifyListeners();
+      return;
+    }
+
+    final now = DateTime.now();
+    final userId = 'staff-user-${now.millisecondsSinceEpoch}';
+    final newUser = GarageUser(
+      id: userId,
+      name: trimmedName,
+      phone: normalizedPhone,
+      role: role.userRole,
+    );
+    final profile = StaffProfile(
+      id: 'staff-${now.millisecondsSinceEpoch}',
+      userId: userId,
+      name: trimmedName,
+      phone: normalizedPhone,
+      role: role,
+      primarySkill: primarySkill.trim().isEmpty
+          ? 'General garage work'
+          : primarySkill.trim(),
+      monthlySalary: monthlySalary < 0 ? 0 : monthlySalary,
+      isActive: isActive,
+      createdAt: now,
+    );
+    _users.add(newUser);
+    _staffProfiles.add(profile);
+    notifyListeners();
+  }
+
+  void assignMasterMechanicToJob(String jobId, String masterMechanicId) {
+    final staff = staffById(masterMechanicId);
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index == -1 ||
+        staff == null ||
+        staff.role != StaffRole.masterMechanic) {
+      return;
+    }
+    _jobs[index] = _jobs[index].copyWith(
+      masterMechanicId: masterMechanicId,
+      status: _jobs[index].status == JobStatus.received
+          ? JobStatus.underInspection
+          : _jobs[index].status,
+    );
+    final car = _cars
+        .where((item) => item.id == _jobs[index].carId)
+        .firstOrNull;
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${DateTime.now().millisecondsSinceEpoch}',
+        userId: staff.userId,
+        title: 'Car assigned',
+        message:
+            '${car?.carNumber ?? 'A vehicle'} is assigned for inspection and job card.',
+        createdAt: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+  }
+
+  void proposeMechanicTeam({
+    required String jobId,
+    required String masterMechanicId,
+    required List<String> mechanicIds,
+  }) {
+    final job = _jobs.where((item) => item.id == jobId).firstOrNull;
+    final master = staffById(masterMechanicId);
+    if (job == null ||
+        master == null ||
+        master.role != StaffRole.masterMechanic ||
+        job.masterMechanicId != masterMechanicId) {
+      return;
+    }
+    final cleanMechanicIds = mechanicIds
+        .where((id) => staffById(id)?.role == StaffRole.mechanic)
+        .toSet()
+        .toList();
+    if (cleanMechanicIds.isEmpty) return;
+
+    final now = DateTime.now();
+    _staffAssignmentProposals.insert(
+      0,
+      StaffAssignmentProposal(
+        id: 'proposal-${now.millisecondsSinceEpoch}',
+        jobId: jobId,
+        masterMechanicId: masterMechanicId,
+        mechanicIds: cleanMechanicIds,
+        createdAt: now,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.millisecondsSinceEpoch + 1}',
+        userId: ownerUser.id,
+        title: 'Mechanic team requested',
+        message:
+            '${master.name} requested ${cleanMechanicIds.length} mechanics for ${carForJob(job)?.carNumber ?? 'a car'}.',
+        createdAt: now,
+      ),
+    );
+    notifyListeners();
+  }
+
+  void decideMechanicTeamProposal(
+    String proposalId,
+    RequestStatus decision, {
+    String? ownerNote,
+  }) {
+    final index = _staffAssignmentProposals.indexWhere(
+      (proposal) => proposal.id == proposalId,
+    );
+    if (index == -1 || decision == RequestStatus.pending) return;
+    final proposal = _staffAssignmentProposals[index];
+    _staffAssignmentProposals[index] = proposal.copyWith(
+      status: decision,
+      ownerNote: ownerNote,
+    );
+    if (decision == RequestStatus.approved) {
+      final jobIndex = _jobs.indexWhere((job) => job.id == proposal.jobId);
+      if (jobIndex >= 0) {
+        _jobs[jobIndex] = _jobs[jobIndex].copyWith(
+          mechanicIds: proposal.mechanicIds,
+        );
+      }
+    }
+    final master = staffById(proposal.masterMechanicId);
+    if (master != null) {
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: 'note-${DateTime.now().millisecondsSinceEpoch}',
+          userId: master.userId,
+          title: 'Mechanic team ${decision.label.toLowerCase()}',
+          message:
+              'Owner ${decision == RequestStatus.approved ? 'approved' : 'rejected'} your mechanic team request.',
+          createdAt: DateTime.now(),
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  ServiceDocument? createMasterJobCard({
+    required String jobId,
+    required String masterMechanicId,
+    required String observations,
+    required List<DocumentLineItem> items,
+  }) {
+    final job = _jobs.where((item) => item.id == jobId).firstOrNull;
+    final car = job == null ? null : carForJob(job);
+    final customer = car == null ? null : customerForCar(car.id);
+    final master = staffById(masterMechanicId);
+    if (job == null ||
+        car == null ||
+        customer == null ||
+        master == null ||
+        job.masterMechanicId != masterMechanicId) {
+      return null;
+    }
+
+    final document = sendDocument(
+      DocumentDraft(
+        documentNumber: 'JOB-${DateTime.now().millisecondsSinceEpoch % 10000}',
+        type: DocumentType.jobCard,
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        vehicleNumber: car.carNumber,
+        carModel: car.model,
+        items: items.isEmpty
+            ? [
+                DocumentLineItem(
+                  description: observations.trim().isEmpty
+                      ? 'Master mechanic inspection'
+                      : observations.trim(),
+                  quantity: 1,
+                  unitPrice: 0,
+                  total: 0,
+                ),
+              ]
+            : items,
+        selectedCarId: car.id,
+        rawText: observations,
+      ),
+      customerUserId: customer.id,
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${DateTime.now().millisecondsSinceEpoch + 1}',
+        userId: ownerUser.id,
+        title: 'Job card prepared',
+        message: '${master.name} prepared a job card for ${car.carNumber}.',
+        createdAt: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+    return document;
+  }
+
+  void submitWorkApprovalRequest({
+    required String jobId,
+    required String staffId,
+    required String title,
+    required String message,
+    String? photoPath,
+  }) {
+    final job = _jobs.where((item) => item.id == jobId).firstOrNull;
+    final staff = staffById(staffId);
+    if (job == null || staff == null) return;
+    final now = DateTime.now();
+    _workApprovalRequests.insert(
+      0,
+      WorkApprovalRequest(
+        id: 'work-${now.millisecondsSinceEpoch}',
+        jobId: jobId,
+        staffId: staffId,
+        title: title.trim().isEmpty ? 'Work approval requested' : title.trim(),
+        message: message.trim().isEmpty ? 'Approval needed.' : message.trim(),
+        photoPath: photoPath,
+        createdAt: now,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.millisecondsSinceEpoch + 1}',
+        userId: ownerUser.id,
+        title: 'Work approval requested',
+        message:
+            '${staff.name} requested approval for ${carForJob(job)?.carNumber ?? 'a vehicle'}.',
+        createdAt: now,
+      ),
+    );
+    notifyListeners();
+  }
+
+  void decideWorkApprovalRequest(
+    String requestId,
+    RequestStatus decision, {
+    bool forwardToCustomer = false,
+    String? ownerResponse,
+  }) {
+    final index = _workApprovalRequests.indexWhere(
+      (request) => request.id == requestId,
+    );
+    if (index == -1 || decision == RequestStatus.pending) return;
+    final request = _workApprovalRequests[index];
+    _workApprovalRequests[index] = request.copyWith(
+      status: decision,
+      forwardedToCustomer: forwardToCustomer,
+      ownerResponse: ownerResponse,
+    );
+    final job = _jobs.where((item) => item.id == request.jobId).firstOrNull;
+    final car = job == null ? null : carForJob(job);
+    if (forwardToCustomer && car != null) {
+      _messages.add(
+        SupportMessage(
+          id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+          userId: car.userId,
+          topic: request.title,
+          message: request.message,
+          createdAt: DateTime.now(),
+          carId: car.id,
+          attachmentPath: request.photoPath,
+          sentByOwner: true,
+        ),
+      );
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: 'note-${DateTime.now().millisecondsSinceEpoch + 1}',
+          userId: car.userId,
+          title: 'Approval requested',
+          message: request.title,
+          createdAt: DateTime.now(),
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  void logAttendance({
+    required String staffId,
+    AttendanceStatus status = AttendanceStatus.present,
+    bool faceVerified = true,
+    bool locationVerified = true,
+    String? note,
+  }) {
+    final staff = staffById(staffId);
+    if (staff == null) return;
+    final today = DateTime.now();
+    final existingIndex = _attendanceEntries.indexWhere(
+      (entry) =>
+          entry.staffId == staffId &&
+          entry.date.year == today.year &&
+          entry.date.month == today.month &&
+          entry.date.day == today.day,
+    );
+    final entry = AttendanceEntry(
+      id: existingIndex == -1
+          ? 'att-${today.millisecondsSinceEpoch}'
+          : _attendanceEntries[existingIndex].id,
+      staffId: staffId,
+      date: DateTime(today.year, today.month, today.day),
+      status: status,
+      loggedAt: today,
+      latitude: 17.4484,
+      longitude: 78.3915,
+      faceVerified: faceVerified,
+      locationVerified: locationVerified,
+      note: note,
+    );
+    if (existingIndex == -1) {
+      _attendanceEntries.insert(0, entry);
+    } else {
+      _attendanceEntries[existingIndex] = entry;
+    }
+    notifyListeners();
+  }
+
+  void requestSalaryAdvance({
+    required String staffId,
+    required double amount,
+    required String reason,
+  }) {
+    final staff = staffById(staffId);
+    if (staff == null || amount <= 0) return;
+    final now = DateTime.now();
+    _salaryAdvances.insert(
+      0,
+      SalaryAdvance(
+        id: 'adv-${now.millisecondsSinceEpoch}',
+        staffId: staffId,
+        amount: amount,
+        reason: reason.trim().isEmpty
+            ? 'Salary advance requested'
+            : reason.trim(),
+        requestedAt: now,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.millisecondsSinceEpoch + 1}',
+        userId: ownerUser.id,
+        title: 'Salary advance requested',
+        message: '${staff.name} requested ${amount.toStringAsFixed(0)}.',
+        createdAt: now,
+      ),
+    );
+    notifyListeners();
+  }
+
+  void decideSalaryAdvance(
+    String advanceId,
+    RequestStatus decision, {
+    String? ownerNote,
+  }) {
+    final index = _salaryAdvances.indexWhere(
+      (advance) => advance.id == advanceId,
+    );
+    if (index == -1 || decision == RequestStatus.pending) return;
+    _salaryAdvances[index] = _salaryAdvances[index].copyWith(
+      status: decision,
+      ownerNote: ownerNote,
+    );
+    notifyListeners();
+  }
+
+  void requestLeave({
+    required String staffId,
+    required DateTime fromDate,
+    required DateTime toDate,
+    required String reason,
+  }) {
+    final staff = staffById(staffId);
+    if (staff == null) return;
+    final now = DateTime.now();
+    _leaveRequests.insert(
+      0,
+      LeaveRequest(
+        id: 'leave-${now.millisecondsSinceEpoch}',
+        staffId: staffId,
+        fromDate: fromDate,
+        toDate: toDate,
+        reason: reason.trim().isEmpty ? 'Leave requested' : reason.trim(),
+        requestedAt: now,
+      ),
+    );
+    _notifications.insert(
+      0,
+      AppNotification(
+        id: 'note-${now.millisecondsSinceEpoch + 1}',
+        userId: ownerUser.id,
+        title: 'Leave requested',
+        message: '${staff.name} requested leave.',
+        createdAt: now,
+      ),
+    );
+    notifyListeners();
+  }
+
+  void decideLeaveRequest(
+    String leaveId,
+    RequestStatus decision, {
+    String? ownerNote,
+  }) {
+    final index = _leaveRequests.indexWhere((leave) => leave.id == leaveId);
+    if (index == -1 || decision == RequestStatus.pending) return;
+    _leaveRequests[index] = _leaveRequests[index].copyWith(
+      status: decision,
+      ownerNote: ownerNote,
+    );
+    notifyListeners();
+  }
+
+  SalarySlip generateSalarySlip(String staffId, String monthLabel) {
+    final staff = staffById(staffId);
+    if (staff == null) {
+      throw StateError('Staff not found.');
+    }
+    final approvedAdvances = advancesForStaff(staffId)
+        .where((advance) => advance.status == RequestStatus.approved)
+        .fold<double>(0, (sum, advance) => sum + advance.amount);
+    final leaveDeduction =
+        leavesForStaff(
+          staffId,
+        ).where((leave) => leave.status == RequestStatus.approved).length *
+        (staff.monthlySalary / 30);
+    final netPay = staff.monthlySalary - approvedAdvances - leaveDeduction;
+    final slip = SalarySlip(
+      id: 'slip-${DateTime.now().millisecondsSinceEpoch}',
+      staffId: staffId,
+      monthLabel: monthLabel.trim().isEmpty ? 'Current Month' : monthLabel,
+      grossPay: staff.monthlySalary,
+      advanceDeduction: approvedAdvances,
+      leaveDeduction: leaveDeduction,
+      netPay: netPay < 0 ? 0 : netPay,
+      generatedAt: DateTime.now(),
+    );
+    _salarySlips.insert(0, slip);
+    notifyListeners();
+    return slip;
+  }
+
+  CarProfile? carForJob(ServiceJob job) {
+    return _cars.where((car) => car.id == job.carId).firstOrNull;
+  }
+
   void decideDocument(
     String documentId,
     ApprovalState decision, {
@@ -776,6 +1396,11 @@ class AppController extends ChangeNotifier {
         createdAt: DateTime.now(),
       ),
     );
+    if (existing.type == DocumentType.jobCard &&
+        decision == ApprovalState.approved &&
+        existing.jobId.isNotEmpty) {
+      setJobStatus(existing.jobId, JobStatus.workInProgress);
+    }
     notifyListeners();
   }
 
@@ -824,18 +1449,34 @@ class AppController extends ChangeNotifier {
     if (index == -1) return;
     final job = _jobs[index];
     final car = _cars.where((item) => item.id == job.carId).firstOrNull;
-    final isDelivery = job.status == JobStatus.completed;
+    final isDelivery =
+        job.status == JobStatus.completed ||
+        job.status == JobStatus.deliveryScheduled;
     final cleanName = personName.trim().isEmpty
         ? isDelivery
               ? 'Delivery executive'
               : 'Pickup executive'
         : personName.trim();
     final cleanPhone = personPhone.trim();
+    final assignedStaff = _staffProfiles
+        .where(
+          (staff) =>
+              staff.role == StaffRole.mechanic &&
+              (staff.name.toLowerCase() == cleanName.toLowerCase() ||
+                  _normalizeIndianPhoneForStorage(staff.phone) ==
+                      _normalizeIndianPhoneForStorage(cleanPhone)),
+        )
+        .firstOrNull;
+    final mechanicIds = {
+      ...job.mechanicIds,
+      if (assignedStaff != null) assignedStaff.id,
+    }.toList();
     _jobs[index] = _jobs[index].copyWith(
       pickupRequired: true,
       pickupState: PickupState.assigned,
       pickupPersonName: cleanName,
       pickupPersonPhone: cleanPhone,
+      mechanicIds: mechanicIds,
     );
     if (car != null) {
       _notifications.insert(
@@ -880,7 +1521,8 @@ class AppController extends ChangeNotifier {
     );
     final isDeliveryRequest =
         existingIndex >= 0 &&
-        _jobs[existingIndex].status == JobStatus.completed;
+        (_jobs[existingIndex].status == JobStatus.completed ||
+            _jobs[existingIndex].status == JobStatus.deliveryScheduled);
     if (existingIndex >= 0) {
       _jobs[existingIndex] = _jobs[existingIndex].copyWith(
         pickupRequired: true,
@@ -888,6 +1530,9 @@ class AppController extends ChangeNotifier {
         pickupTime: pickupTime,
         pickupAddress: pickupAddress,
         locationAccessGranted: locationAccessGranted,
+        status: isDeliveryRequest
+            ? JobStatus.deliveryScheduled
+            : JobStatus.pickupScheduled,
       );
     } else {
       _jobs.insert(
@@ -896,7 +1541,7 @@ class AppController extends ChangeNotifier {
           id: 'job-${DateTime.now().millisecondsSinceEpoch}',
           userId: car.userId,
           carId: car.id,
-          status: JobStatus.received,
+          status: JobStatus.pickupScheduled,
           expectedCompletion: DateTime.now().add(const Duration(days: 1)),
           pickupTime: pickupTime,
           pickupRequired: true,
@@ -953,11 +1598,13 @@ class AppController extends ChangeNotifier {
     final car = _cars
         .where((item) => item.id == _jobs[index].carId)
         .firstOrNull;
-    final isDelivery = _jobs[index].status == JobStatus.completed;
+    final isDelivery =
+        _jobs[index].status == JobStatus.completed ||
+        _jobs[index].status == JobStatus.deliveryScheduled;
     _jobs[index] = _jobs[index].copyWith(
-      pickupRequired: !isDelivery,
+      pickupRequired: false,
       pickupState: PickupState.completed,
-      status: isDelivery ? JobStatus.onRoad : _jobs[index].status,
+      status: isDelivery ? JobStatus.onRoad : JobStatus.pickupDone,
     );
     if (car != null) {
       if (proofImagePath != null && proofImagePath.trim().isNotEmpty) {
@@ -1152,9 +1799,7 @@ class AppController extends ChangeNotifier {
       title: draft.documentNumber,
       items: draft.items,
       total: draft.total,
-      approvalState:
-          draft.type == DocumentType.invoice ||
-              draft.type == DocumentType.jobCard
+      approvalState: draft.type == DocumentType.invoice
           ? ApprovalState.approved
           : ApprovalState.pending,
       paymentState: PaymentState.pending,
@@ -1174,7 +1819,7 @@ class AppController extends ChangeNotifier {
         case DocumentType.jobCard:
           if (relatedJob.status == JobStatus.received ||
               relatedJob.status == JobStatus.underInspection) {
-            setJobStatus(relatedJob.id, JobStatus.workInProgress);
+            setJobStatus(relatedJob.id, JobStatus.underInspection);
           }
           break;
         case DocumentType.invoice:

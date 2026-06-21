@@ -5,7 +5,7 @@ import { verifyAccessToken } from '../lib/jwt';
 export interface AuthenticatedRequest extends Request {
   auth?: {
     userId: string;
-    role: 'customer' | 'owner';
+    role: 'customer' | 'owner' | 'masterMechanic' | 'mechanic';
     phone: string;
   };
 }
@@ -29,7 +29,9 @@ export function requireAuth(req: AuthenticatedRequest, _res: Response, next: Nex
   }
 }
 
-export function requireRole(...roles: Array<'customer' | 'owner'>) {
+export function requireRole(
+  ...roles: Array<'customer' | 'owner' | 'masterMechanic' | 'mechanic'>
+) {
   return (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
     if (!req.auth || !roles.includes(req.auth.role)) {
       return next(new AppError(403, 'You do not have permission to access this resource.'));

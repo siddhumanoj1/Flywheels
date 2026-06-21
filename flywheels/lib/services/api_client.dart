@@ -52,9 +52,12 @@ class FlywheelsApiClient {
         id: user['id'] as String,
         name: user['name'] as String,
         phone: user['phone'] as String,
-        role: (user['role'] as String) == 'owner'
-            ? UserRole.owner
-            : UserRole.customer,
+        role: switch (user['role'] as String) {
+          'owner' => UserRole.owner,
+          'masterMechanic' || 'master_mechanic' => UserRole.masterMechanic,
+          'mechanic' => UserRole.mechanic,
+          _ => UserRole.customer,
+        },
       ),
     );
   }

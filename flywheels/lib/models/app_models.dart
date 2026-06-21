@@ -1,16 +1,43 @@
-enum UserRole { customer, owner }
+enum UserRole { customer, owner, masterMechanic, mechanic }
 
 extension UserRoleX on UserRole {
   bool get isOwner => this == UserRole.owner;
+  bool get isMasterMechanic => this == UserRole.masterMechanic;
+  bool get isMechanic => this == UserRole.mechanic;
+  bool get isStaff => isMasterMechanic || isMechanic;
 
-  String get label => this == UserRole.owner ? 'Owner' : 'Customer';
+  String get label {
+    switch (this) {
+      case UserRole.customer:
+        return 'Customer';
+      case UserRole.owner:
+        return 'Owner';
+      case UserRole.masterMechanic:
+        return 'Master Mechanic';
+      case UserRole.mechanic:
+        return 'Mechanic';
+    }
+  }
 }
 
-enum JobStatus { received, underInspection, workInProgress, completed, onRoad }
+enum JobStatus {
+  pickupScheduled,
+  pickupDone,
+  received,
+  underInspection,
+  workInProgress,
+  completed,
+  deliveryScheduled,
+  onRoad,
+}
 
 extension JobStatusX on JobStatus {
   JobStatus get next {
     switch (this) {
+      case JobStatus.pickupScheduled:
+        return JobStatus.pickupDone;
+      case JobStatus.pickupDone:
+        return JobStatus.received;
       case JobStatus.received:
         return JobStatus.underInspection;
       case JobStatus.underInspection:
@@ -18,6 +45,8 @@ extension JobStatusX on JobStatus {
       case JobStatus.workInProgress:
         return JobStatus.completed;
       case JobStatus.completed:
+        return JobStatus.deliveryScheduled;
+      case JobStatus.deliveryScheduled:
         return JobStatus.onRoad;
       case JobStatus.onRoad:
         return JobStatus.onRoad;
@@ -26,6 +55,10 @@ extension JobStatusX on JobStatus {
 
   String get label {
     switch (this) {
+      case JobStatus.pickupScheduled:
+        return 'Pick Up Scheduled';
+      case JobStatus.pickupDone:
+        return 'Pick Up Done';
       case JobStatus.received:
         return 'Received';
       case JobStatus.underInspection:
@@ -33,7 +66,9 @@ extension JobStatusX on JobStatus {
       case JobStatus.workInProgress:
         return 'Work in Progress';
       case JobStatus.completed:
-        return 'Completed';
+        return 'Completed - Waiting For Pickup';
+      case JobStatus.deliveryScheduled:
+        return 'Delivery Scheduled';
       case JobStatus.onRoad:
         return 'On-Road';
     }
@@ -59,6 +94,7 @@ enum CarWorkflowState {
   registered,
   pickupRequested,
   pickupAssigned,
+  pickupDone,
   received,
   underInspection,
   workInProgress,
@@ -77,6 +113,8 @@ extension CarWorkflowStateX on CarWorkflowState {
         return 'Pickup Requested';
       case CarWorkflowState.pickupAssigned:
         return 'Pickup Assigned';
+      case CarWorkflowState.pickupDone:
+        return 'Pick Up Done';
       case CarWorkflowState.received:
         return 'Received';
       case CarWorkflowState.underInspection:
@@ -84,7 +122,7 @@ extension CarWorkflowStateX on CarWorkflowState {
       case CarWorkflowState.workInProgress:
         return 'Work in Progress';
       case CarWorkflowState.readyForDelivery:
-        return 'Ready for Delivery';
+        return 'Completed - Waiting For Pickup';
       case CarWorkflowState.deliveryRequested:
         return 'Delivery Requested';
       case CarWorkflowState.deliveryAssigned:
@@ -97,6 +135,7 @@ extension CarWorkflowStateX on CarWorkflowState {
   bool get isTransit =>
       this == CarWorkflowState.pickupRequested ||
       this == CarWorkflowState.pickupAssigned ||
+      this == CarWorkflowState.pickupDone ||
       this == CarWorkflowState.deliveryRequested ||
       this == CarWorkflowState.deliveryAssigned;
 
@@ -110,6 +149,7 @@ extension CarWorkflowStateX on CarWorkflowState {
 
   bool get needsOwnerAction =>
       isTransit ||
+      this == CarWorkflowState.received ||
       this == CarWorkflowState.underInspection ||
       this == CarWorkflowState.workInProgress ||
       this == CarWorkflowState.readyForDelivery;
@@ -117,6 +157,20 @@ extension CarWorkflowStateX on CarWorkflowState {
 
 extension ServiceJobWorkflowX on ServiceJob {
   CarWorkflowState get workflowState {
+    if (status == JobStatus.pickupScheduled) {
+      return pickupState == PickupState.assigned
+          ? CarWorkflowState.pickupAssigned
+          : CarWorkflowState.pickupRequested;
+    }
+    if (status == JobStatus.pickupDone) {
+      return CarWorkflowState.pickupDone;
+    }
+    if (status == JobStatus.deliveryScheduled) {
+      return pickupState == PickupState.assigned
+          ? CarWorkflowState.deliveryAssigned
+          : CarWorkflowState.deliveryRequested;
+    }
+
     final isOpenTransit =
         pickupRequired && pickupState != PickupState.completed;
     if (status == JobStatus.completed && isOpenTransit) {
@@ -131,6 +185,12 @@ extension ServiceJobWorkflowX on ServiceJob {
     }
 
     switch (status) {
+      case JobStatus.pickupScheduled:
+        return pickupState == PickupState.assigned
+            ? CarWorkflowState.pickupAssigned
+            : CarWorkflowState.pickupRequested;
+      case JobStatus.pickupDone:
+        return CarWorkflowState.pickupDone;
       case JobStatus.received:
         return CarWorkflowState.received;
       case JobStatus.underInspection:
@@ -139,6 +199,10 @@ extension ServiceJobWorkflowX on ServiceJob {
         return CarWorkflowState.workInProgress;
       case JobStatus.completed:
         return CarWorkflowState.readyForDelivery;
+      case JobStatus.deliveryScheduled:
+        return pickupState == PickupState.assigned
+            ? CarWorkflowState.deliveryAssigned
+            : CarWorkflowState.deliveryRequested;
       case JobStatus.onRoad:
         return CarWorkflowState.onRoad;
     }
@@ -454,6 +518,8 @@ class ServiceJob {
     this.pickupPersonName,
     this.pickupPersonPhone,
     this.locationAccessGranted = false,
+    this.masterMechanicId,
+    this.mechanicIds = const [],
   });
 
   final String id;
@@ -468,6 +534,8 @@ class ServiceJob {
   final String? pickupPersonName;
   final String? pickupPersonPhone;
   final bool locationAccessGranted;
+  final String? masterMechanicId;
+  final List<String> mechanicIds;
 
   ServiceJob copyWith({
     JobStatus? status,
@@ -479,6 +547,8 @@ class ServiceJob {
     String? pickupPersonName,
     String? pickupPersonPhone,
     bool? locationAccessGranted,
+    String? masterMechanicId,
+    List<String>? mechanicIds,
   }) {
     return ServiceJob(
       id: id,
@@ -494,6 +564,8 @@ class ServiceJob {
       pickupPersonPhone: pickupPersonPhone ?? this.pickupPersonPhone,
       locationAccessGranted:
           locationAccessGranted ?? this.locationAccessGranted,
+      masterMechanicId: masterMechanicId ?? this.masterMechanicId,
+      mechanicIds: mechanicIds ?? this.mechanicIds,
     );
   }
 }
@@ -656,6 +728,290 @@ extension ChatChannelX on ChatChannel {
       case ChatChannel.selling:
         return 'Selling';
     }
+  }
+}
+
+enum StaffRole { masterMechanic, mechanic }
+
+extension StaffRoleX on StaffRole {
+  String get label =>
+      this == StaffRole.masterMechanic ? 'Master Mechanic' : 'Mechanic';
+
+  UserRole get userRole => this == StaffRole.masterMechanic
+      ? UserRole.masterMechanic
+      : UserRole.mechanic;
+}
+
+enum AttendanceStatus { present, halfDay, leave, absent }
+
+extension AttendanceStatusX on AttendanceStatus {
+  String get label {
+    switch (this) {
+      case AttendanceStatus.present:
+        return 'Present';
+      case AttendanceStatus.halfDay:
+        return 'Half Day';
+      case AttendanceStatus.leave:
+        return 'Leave';
+      case AttendanceStatus.absent:
+        return 'Absent';
+    }
+  }
+}
+
+enum RequestStatus { pending, approved, rejected }
+
+extension RequestStatusX on RequestStatus {
+  String get label {
+    switch (this) {
+      case RequestStatus.pending:
+        return 'Pending';
+      case RequestStatus.approved:
+        return 'Approved';
+      case RequestStatus.rejected:
+        return 'Rejected';
+    }
+  }
+}
+
+class StaffProfile {
+  const StaffProfile({
+    required this.id,
+    required this.userId,
+    required this.name,
+    required this.phone,
+    required this.role,
+    required this.primarySkill,
+    required this.monthlySalary,
+    this.profileImagePath,
+    this.isActive = true,
+    this.createdAt,
+  });
+
+  final String id;
+  final String userId;
+  final String name;
+  final String phone;
+  final StaffRole role;
+  final String primarySkill;
+  final double monthlySalary;
+  final String? profileImagePath;
+  final bool isActive;
+  final DateTime? createdAt;
+
+  StaffProfile copyWith({
+    String? name,
+    String? phone,
+    StaffRole? role,
+    String? primarySkill,
+    double? monthlySalary,
+    String? profileImagePath,
+    bool? isActive,
+  }) {
+    return StaffProfile(
+      id: id,
+      userId: userId,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      role: role ?? this.role,
+      primarySkill: primarySkill ?? this.primarySkill,
+      monthlySalary: monthlySalary ?? this.monthlySalary,
+      profileImagePath: profileImagePath ?? this.profileImagePath,
+      isActive: isActive ?? this.isActive,
+      createdAt: createdAt,
+    );
+  }
+}
+
+class AttendanceEntry {
+  const AttendanceEntry({
+    required this.id,
+    required this.staffId,
+    required this.date,
+    required this.status,
+    required this.loggedAt,
+    this.latitude,
+    this.longitude,
+    this.faceVerified = false,
+    this.locationVerified = false,
+    this.note,
+  });
+
+  final String id;
+  final String staffId;
+  final DateTime date;
+  final AttendanceStatus status;
+  final DateTime loggedAt;
+  final double? latitude;
+  final double? longitude;
+  final bool faceVerified;
+  final bool locationVerified;
+  final String? note;
+}
+
+class SalaryAdvance {
+  const SalaryAdvance({
+    required this.id,
+    required this.staffId,
+    required this.amount,
+    required this.reason,
+    required this.requestedAt,
+    this.status = RequestStatus.pending,
+    this.ownerNote,
+  });
+
+  final String id;
+  final String staffId;
+  final double amount;
+  final String reason;
+  final DateTime requestedAt;
+  final RequestStatus status;
+  final String? ownerNote;
+
+  SalaryAdvance copyWith({RequestStatus? status, String? ownerNote}) {
+    return SalaryAdvance(
+      id: id,
+      staffId: staffId,
+      amount: amount,
+      reason: reason,
+      requestedAt: requestedAt,
+      status: status ?? this.status,
+      ownerNote: ownerNote ?? this.ownerNote,
+    );
+  }
+}
+
+class LeaveRequest {
+  const LeaveRequest({
+    required this.id,
+    required this.staffId,
+    required this.fromDate,
+    required this.toDate,
+    required this.reason,
+    required this.requestedAt,
+    this.status = RequestStatus.pending,
+    this.ownerNote,
+  });
+
+  final String id;
+  final String staffId;
+  final DateTime fromDate;
+  final DateTime toDate;
+  final String reason;
+  final DateTime requestedAt;
+  final RequestStatus status;
+  final String? ownerNote;
+
+  LeaveRequest copyWith({RequestStatus? status, String? ownerNote}) {
+    return LeaveRequest(
+      id: id,
+      staffId: staffId,
+      fromDate: fromDate,
+      toDate: toDate,
+      reason: reason,
+      requestedAt: requestedAt,
+      status: status ?? this.status,
+      ownerNote: ownerNote ?? this.ownerNote,
+    );
+  }
+}
+
+class SalarySlip {
+  const SalarySlip({
+    required this.id,
+    required this.staffId,
+    required this.monthLabel,
+    required this.grossPay,
+    required this.advanceDeduction,
+    required this.leaveDeduction,
+    required this.netPay,
+    required this.generatedAt,
+  });
+
+  final String id;
+  final String staffId;
+  final String monthLabel;
+  final double grossPay;
+  final double advanceDeduction;
+  final double leaveDeduction;
+  final double netPay;
+  final DateTime generatedAt;
+}
+
+class StaffAssignmentProposal {
+  const StaffAssignmentProposal({
+    required this.id,
+    required this.jobId,
+    required this.masterMechanicId,
+    required this.mechanicIds,
+    required this.createdAt,
+    this.status = RequestStatus.pending,
+    this.ownerNote,
+  });
+
+  final String id;
+  final String jobId;
+  final String masterMechanicId;
+  final List<String> mechanicIds;
+  final DateTime createdAt;
+  final RequestStatus status;
+  final String? ownerNote;
+
+  StaffAssignmentProposal copyWith({RequestStatus? status, String? ownerNote}) {
+    return StaffAssignmentProposal(
+      id: id,
+      jobId: jobId,
+      masterMechanicId: masterMechanicId,
+      mechanicIds: mechanicIds,
+      createdAt: createdAt,
+      status: status ?? this.status,
+      ownerNote: ownerNote ?? this.ownerNote,
+    );
+  }
+}
+
+class WorkApprovalRequest {
+  const WorkApprovalRequest({
+    required this.id,
+    required this.jobId,
+    required this.staffId,
+    required this.title,
+    required this.message,
+    required this.createdAt,
+    this.photoPath,
+    this.status = RequestStatus.pending,
+    this.forwardedToCustomer = false,
+    this.ownerResponse,
+  });
+
+  final String id;
+  final String jobId;
+  final String staffId;
+  final String title;
+  final String message;
+  final DateTime createdAt;
+  final String? photoPath;
+  final RequestStatus status;
+  final bool forwardedToCustomer;
+  final String? ownerResponse;
+
+  WorkApprovalRequest copyWith({
+    RequestStatus? status,
+    bool? forwardedToCustomer,
+    String? ownerResponse,
+  }) {
+    return WorkApprovalRequest(
+      id: id,
+      jobId: jobId,
+      staffId: staffId,
+      title: title,
+      message: message,
+      createdAt: createdAt,
+      photoPath: photoPath,
+      status: status ?? this.status,
+      forwardedToCustomer: forwardedToCustomer ?? this.forwardedToCustomer,
+      ownerResponse: ownerResponse ?? this.ownerResponse,
+    );
   }
 }
 

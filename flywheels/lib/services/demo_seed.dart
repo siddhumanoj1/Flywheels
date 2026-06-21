@@ -20,7 +20,76 @@ abstract final class DemoSeed {
         'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80',
   );
 
-  static const users = <GarageUser>[customerUser, ownerUser];
+  static const masterMechanicUser = GarageUser(
+    id: 'master-1',
+    name: 'Arjun Master',
+    phone: '9000011111',
+    role: UserRole.masterMechanic,
+    profileImagePath:
+        'https://images.unsplash.com/photo-1531891437562-4301cf35b7e4?auto=format&fit=crop&w=800&q=80',
+  );
+
+  static const mechanicUser = GarageUser(
+    id: 'mechanic-1',
+    name: 'Ravi Kumar',
+    phone: '9000022222',
+    role: UserRole.mechanic,
+    profileImagePath:
+        'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=800&q=80',
+  );
+
+  static const mechanicUser2 = GarageUser(
+    id: 'mechanic-2',
+    name: 'Imran Shaik',
+    phone: '9000033333',
+    role: UserRole.mechanic,
+    profileImagePath:
+        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+  );
+
+  static const users = <GarageUser>[
+    customerUser,
+    ownerUser,
+    masterMechanicUser,
+    mechanicUser,
+    mechanicUser2,
+  ];
+
+  static const staffProfiles = <StaffProfile>[
+    StaffProfile(
+      id: 'staff-master-1',
+      userId: 'master-1',
+      name: 'Arjun Master',
+      phone: '9000011111',
+      role: StaffRole.masterMechanic,
+      primarySkill: 'Diagnostics and job cards',
+      monthlySalary: 52000,
+      profileImagePath:
+          'https://images.unsplash.com/photo-1531891437562-4301cf35b7e4?auto=format&fit=crop&w=800&q=80',
+    ),
+    StaffProfile(
+      id: 'staff-mech-1',
+      userId: 'mechanic-1',
+      name: 'Ravi Kumar',
+      phone: '9000022222',
+      role: StaffRole.mechanic,
+      primarySkill: 'Pickup, diesel service',
+      monthlySalary: 28000,
+      profileImagePath:
+          'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=800&q=80',
+    ),
+    StaffProfile(
+      id: 'staff-mech-2',
+      userId: 'mechanic-2',
+      name: 'Imran Shaik',
+      phone: '9000033333',
+      role: StaffRole.mechanic,
+      primarySkill: 'Electrical and AC work',
+      monthlySalary: 31000,
+      profileImagePath:
+          'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+    ),
+  ];
 
   static final cars = <CarProfile>[
     const CarProfile(
@@ -177,6 +246,8 @@ abstract final class DemoSeed {
       pickupPersonName: 'Ravi Kumar',
       pickupPersonPhone: '9000012345',
       locationAccessGranted: true,
+      masterMechanicId: 'staff-master-1',
+      mechanicIds: ['staff-mech-1', 'staff-mech-2'],
     ),
     ServiceJob(
       id: 'job-2',
@@ -190,6 +261,8 @@ abstract final class DemoSeed {
       pickupRequired: false,
       pickupState: PickupState.completed,
       pickupAddress: 'Kondapur, Hyderabad',
+      masterMechanicId: 'staff-master-1',
+      mechanicIds: ['staff-mech-1'],
     ),
   ];
 
@@ -382,6 +455,133 @@ abstract final class DemoSeed {
     ),
   ];
 
+  static final attendanceEntries = <AttendanceEntry>[
+    AttendanceEntry(
+      id: 'att-1',
+      staffId: 'staff-master-1',
+      date: DateTime.now(),
+      status: AttendanceStatus.present,
+      loggedAt: DateTime.now().subtract(const Duration(hours: 7)),
+      latitude: 17.4484,
+      longitude: 78.3915,
+      faceVerified: true,
+      locationVerified: true,
+      note: 'Morning check-in at garage',
+    ),
+    AttendanceEntry(
+      id: 'att-2',
+      staffId: 'staff-mech-1',
+      date: DateTime.now(),
+      status: AttendanceStatus.present,
+      loggedAt: DateTime.now().subtract(const Duration(hours: 6, minutes: 40)),
+      latitude: 17.4482,
+      longitude: 78.3917,
+      faceVerified: true,
+      locationVerified: true,
+      note: 'Pickup duty started',
+    ),
+    AttendanceEntry(
+      id: 'att-3',
+      staffId: 'staff-mech-2',
+      date: DateTime.now().subtract(const Duration(days: 1)),
+      status: AttendanceStatus.halfDay,
+      loggedAt: DateTime.now().subtract(const Duration(days: 1, hours: 5)),
+      latitude: 17.4483,
+      longitude: 78.3914,
+      faceVerified: true,
+      locationVerified: true,
+      note: 'Left after AC fitment',
+    ),
+  ];
+
+  static final salaryAdvances = <SalaryAdvance>[
+    SalaryAdvance(
+      id: 'adv-1',
+      staffId: 'staff-mech-1',
+      amount: 4000,
+      reason: 'Family medical expense',
+      requestedAt: DateTime.now().subtract(const Duration(days: 4)),
+      status: RequestStatus.approved,
+      ownerNote: 'Deduct from this month salary',
+    ),
+    SalaryAdvance(
+      id: 'adv-2',
+      staffId: 'staff-mech-2',
+      amount: 2500,
+      reason: 'Festival travel',
+      requestedAt: DateTime.now().subtract(const Duration(hours: 12)),
+    ),
+  ];
+
+  static final leaveRequests = <LeaveRequest>[
+    LeaveRequest(
+      id: 'leave-1',
+      staffId: 'staff-master-1',
+      fromDate: DateTime.now().add(const Duration(days: 5)),
+      toDate: DateTime.now().add(const Duration(days: 6)),
+      reason: 'Family function',
+      requestedAt: DateTime.now().subtract(const Duration(days: 1)),
+    ),
+  ];
+
+  static final salarySlips = <SalarySlip>[
+    SalarySlip(
+      id: 'slip-1',
+      staffId: 'staff-master-1',
+      monthLabel: 'May 2026',
+      grossPay: 52000,
+      advanceDeduction: 0,
+      leaveDeduction: 0,
+      netPay: 52000,
+      generatedAt: DateTime.now().subtract(const Duration(days: 18)),
+    ),
+    SalarySlip(
+      id: 'slip-2',
+      staffId: 'staff-mech-1',
+      monthLabel: 'May 2026',
+      grossPay: 28000,
+      advanceDeduction: 3000,
+      leaveDeduction: 900,
+      netPay: 24100,
+      generatedAt: DateTime.now().subtract(const Duration(days: 18)),
+    ),
+    SalarySlip(
+      id: 'slip-3',
+      staffId: 'staff-mech-2',
+      monthLabel: 'May 2026',
+      grossPay: 31000,
+      advanceDeduction: 0,
+      leaveDeduction: 0,
+      netPay: 31000,
+      generatedAt: DateTime.now().subtract(const Duration(days: 18)),
+    ),
+  ];
+
+  static final staffAssignmentProposals = <StaffAssignmentProposal>[
+    StaffAssignmentProposal(
+      id: 'proposal-1',
+      jobId: 'job-1',
+      masterMechanicId: 'staff-master-1',
+      mechanicIds: ['staff-mech-1', 'staff-mech-2'],
+      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
+      status: RequestStatus.approved,
+    ),
+  ];
+
+  static final workApprovalRequests = <WorkApprovalRequest>[
+    WorkApprovalRequest(
+      id: 'work-approval-1',
+      jobId: 'job-1',
+      staffId: 'staff-master-1',
+      title: 'RR defogger part approval',
+      message:
+          'Rear defogger connector is weak. Replacement recommended before final delivery.',
+      createdAt: DateTime.now().subtract(const Duration(hours: 1)),
+      photoPath:
+          'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=1200&q=80',
+    ),
+  ];
+
   static AppSession? sessionForPhone(String phone, String code) {
     if (code != '12345') return null;
     if (phone == ownerUser.phone) {
@@ -389,6 +589,21 @@ abstract final class DemoSeed {
     }
     if (phone == customerUser.phone) {
       return const AppSession(user: customerUser, token: 'demo-customer-token');
+    }
+    if (phone == masterMechanicUser.phone) {
+      return const AppSession(
+        user: masterMechanicUser,
+        token: 'demo-master-token',
+      );
+    }
+    if (phone == mechanicUser.phone) {
+      return const AppSession(user: mechanicUser, token: 'demo-mechanic-token');
+    }
+    if (phone == mechanicUser2.phone) {
+      return const AppSession(
+        user: mechanicUser2,
+        token: 'demo-mechanic-token',
+      );
     }
     return AppSession(
       user: GarageUser(

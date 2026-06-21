@@ -75,6 +75,20 @@ function serializeItems(items: Prisma.JsonValue): ParsedLineItem[] {
   return Array.isArray(items) ? (items as unknown as ParsedLineItem[]) : [];
 }
 
+function serializeRole(role: Role | string) {
+  switch (String(role)) {
+    case 'OWNER':
+      return 'owner';
+    case 'MASTER_MECHANIC':
+      return 'masterMechanic';
+    case 'MECHANIC':
+      return 'mechanic';
+    case 'CUSTOMER':
+    default:
+      return 'customer';
+  }
+}
+
 router.get('/health', (_req, res) => {
   res.json({
     success: true,
@@ -155,7 +169,7 @@ router.post('/api/v1/auth/verify-otp', async (req, res, next) => {
     const token = signAccessToken({
       sub: user.id,
       phone: user.phone,
-      role: user.role === Role.OWNER ? 'owner' : 'customer',
+      role: serializeRole(user.role),
     });
 
     res.json({
@@ -163,7 +177,7 @@ router.post('/api/v1/auth/verify-otp', async (req, res, next) => {
       token,
       user: {
         id: user.id,
-        role: user.role === Role.OWNER ? 'owner' : 'customer',
+        role: serializeRole(user.role),
         name: user.name,
         phone: user.phone,
       },
@@ -189,7 +203,7 @@ router.get('/api/v1/me', requireAuth, async (req: AuthenticatedRequest, res, nex
       data: {
         id: user.id,
         name: user.name,
-        role: user.role === Role.OWNER ? 'owner' : 'customer',
+        role: serializeRole(user.role),
         phone: user.phone,
         email: user.email,
         address: user.address,

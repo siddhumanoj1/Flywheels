@@ -202,7 +202,7 @@ class _LoginPageState extends State<LoginPage> {
                                       borderRadius: BorderRadius.circular(18),
                                     ),
                                     child: Text(
-                                      'Development OTP: ${controller.generatedOtp}\nDemo owner number: 9876543210\nDemo customer number: 9123456789',
+                                      'Development OTP: ${controller.generatedOtp}\nDemo owner number: 9876543210\nDemo customer number: 9123456789\nDemo master mechanic: 9000011111\nDemo mechanic: 9000022222',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,

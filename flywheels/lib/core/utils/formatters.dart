@@ -58,6 +58,10 @@ String formatDateTime(DateTime value) {
 
 String statusLabel(JobStatus status) {
   switch (status) {
+    case JobStatus.pickupScheduled:
+      return 'Pick Up Scheduled';
+    case JobStatus.pickupDone:
+      return 'Pick Up Done';
     case JobStatus.received:
       return 'Received';
     case JobStatus.underInspection:
@@ -65,7 +69,9 @@ String statusLabel(JobStatus status) {
     case JobStatus.workInProgress:
       return 'Work in Progress';
     case JobStatus.completed:
-      return 'Completed';
+      return 'Completed - Waiting For Pickup';
+    case JobStatus.deliveryScheduled:
+      return 'Delivery Scheduled';
     case JobStatus.onRoad:
       return 'On-Road';
   }

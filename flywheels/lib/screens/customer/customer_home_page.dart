@@ -2463,7 +2463,6 @@ class _CustomerDocumentLibraryTile extends StatelessWidget {
                 label: const Text('WhatsApp'),
               ),
               if (document.type != DocumentType.invoice &&
-                  document.type != DocumentType.jobCard &&
                   document.approvalState == ApprovalState.pending)
                 FilledButton.icon(
                   onPressed: () => FlywheelsScope.of(

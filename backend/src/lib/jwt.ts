@@ -3,7 +3,7 @@ import { env } from '../config/env';
 
 export interface AuthTokenPayload {
   sub: string;
-  role: 'customer' | 'owner';
+  role: 'customer' | 'owner' | 'masterMechanic' | 'mechanic';
   phone: string;
 }
 
