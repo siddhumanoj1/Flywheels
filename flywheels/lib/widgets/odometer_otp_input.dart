@@ -376,14 +376,16 @@ class _SwipeableOdometerDigit extends StatefulWidget {
 }
 
 class _SwipeableOdometerDigitState extends State<_SwipeableOdometerDigit> {
-  static const _stepDistance = 24.0;
-  static const _flingVelocity = 320.0;
+  static const _stepDistance = 58.0;
+  static const _flingVelocity = 760.0;
 
   double _dragOffset = 0;
   bool _isDragging = false;
+  bool _hasSteppedThisDrag = false;
 
   void _startDrag() {
     _dragOffset = 0;
+    _hasSteppedThisDrag = false;
     setState(() => _isDragging = true);
   }
 
@@ -393,31 +395,35 @@ class _SwipeableOdometerDigitState extends State<_SwipeableOdometerDigit> {
   }
 
   void _updateDrag(DragUpdateDetails details) {
+    if (_hasSteppedThisDrag) return;
+
     _dragOffset += details.delta.dy;
-    while (_dragOffset <= -_stepDistance) {
-      _dragOffset += _stepDistance;
+    if (_dragOffset <= -_stepDistance) {
       _step(1);
+      _hasSteppedThisDrag = true;
     }
-    while (_dragOffset >= _stepDistance) {
-      _dragOffset -= _stepDistance;
+    if (_dragOffset >= _stepDistance) {
       _step(-1);
+      _hasSteppedThisDrag = true;
     }
   }
 
   void _endDrag(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
-    if (_dragOffset.abs() >= 8 && _dragOffset.abs() < _stepDistance) {
-      _step(_dragOffset < 0 ? 1 : -1);
-    } else if (velocity.abs() >= _flingVelocity) {
+    if (!_hasSteppedThisDrag &&
+        _dragOffset.abs() >= 28 &&
+        velocity.abs() >= _flingVelocity) {
       _step(velocity < 0 ? 1 : -1);
     }
 
     _dragOffset = 0;
+    _hasSteppedThisDrag = false;
     if (mounted) setState(() => _isDragging = false);
   }
 
   void _cancelDrag() {
     _dragOffset = 0;
+    _hasSteppedThisDrag = false;
     if (mounted) setState(() => _isDragging = false);
   }
 
