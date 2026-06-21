@@ -270,8 +270,10 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
 
   void _handleOtpChanged() {
     final value = _digitsOnly(_otpController.text);
-    if (value.length < 5 &&
-        (_status != OdometerOtpStatus.pending || _errorText != null)) {
+    final shouldResetStatus =
+        (_status != OdometerOtpStatus.pending || _errorText != null) &&
+        value != _submittedCode;
+    if (value.length < 5 || shouldResetStatus) {
       setState(() {
         _status = OdometerOtpStatus.pending;
         _errorText = null;

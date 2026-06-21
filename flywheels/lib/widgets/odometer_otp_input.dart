@@ -35,7 +35,12 @@ class OdometerOtpInput extends StatefulWidget {
 }
 
 class _OdometerOtpInputState extends State<OdometerOtpInput> with CodeAutoFill {
+  static const _digitCount = 5;
+
   String _lastValue = '';
+  final List<int?> _dialDigits = List<int?>.filled(_digitCount, null);
+  Timer? _dialCompletionTimer;
+  bool _isApplyingDialUpdate = false;
   bool _isDisposed = false;
 
   @override
@@ -52,12 +57,14 @@ class _OdometerOtpInputState extends State<OdometerOtpInput> with CodeAutoFill {
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_handleControllerChanged);
       widget.controller.addListener(_handleControllerChanged);
+      _clearDialDigits();
     }
   }
 
   @override
   void dispose() {
     _isDisposed = true;
+    _dialCompletionTimer?.cancel();
     widget.controller.removeListener(_handleControllerChanged);
     unawaited(cancel());
     unawaited(unregisterListener());
@@ -66,14 +73,81 @@ class _OdometerOtpInputState extends State<OdometerOtpInput> with CodeAutoFill {
 
   void _handleControllerChanged() {
     final value = _digitsOnly(widget.controller.text);
+    if (!_isApplyingDialUpdate) {
+      _clearDialDigits();
+    }
     if (value != _lastValue) {
       _lastValue = value;
       widget.onChanged?.call(value);
-      if (value.length == 5) {
+      if (_isApplyingDialUpdate) {
+        _scheduleDialCompletion();
+      } else if (value.length == _digitCount) {
         widget.onCompleted?.call(value);
       }
     }
     if (mounted) setState(() {});
+  }
+
+  void _handleDigitStep(int index, int step) {
+    if (!widget.enabled || index < 0 || index >= _digitCount) return;
+
+    _seedDialDigitsFromText();
+    final currentDigit = _dialDigits[index] ?? 0;
+    final steppedDigit = (currentDigit + step) % 10;
+    _dialDigits[index] = steppedDigit < 0 ? steppedDigit + 10 : steppedDigit;
+
+    final nextValue = _textFromDialDigits();
+    _isApplyingDialUpdate = true;
+    try {
+      widget.controller.value = TextEditingValue(
+        text: nextValue,
+        selection: TextSelection.collapsed(offset: nextValue.length),
+      );
+    } finally {
+      _isApplyingDialUpdate = false;
+    }
+  }
+
+  void _seedDialDigitsFromText() {
+    if (_hasDialDigits) return;
+    final value = _digitsOnly(widget.controller.text);
+    for (var index = 0; index < value.length && index < _digitCount; index++) {
+      _dialDigits[index] = int.tryParse(value[index]);
+    }
+  }
+
+  void _clearDialDigits() {
+    _dialCompletionTimer?.cancel();
+    for (var index = 0; index < _dialDigits.length; index++) {
+      _dialDigits[index] = null;
+    }
+  }
+
+  bool get _hasDialDigits => _dialDigits.any((digit) => digit != null);
+  bool get _hasCompleteDialCode => _dialDigits.every((digit) => digit != null);
+
+  String _textFromDialDigits() {
+    return _dialDigits
+        .map((digit) => digit?.toString() ?? ' ')
+        .join()
+        .trimRight();
+  }
+
+  String _displayValueFor(String value) {
+    if (!_hasDialDigits) return value;
+    return _dialDigits.map((digit) => '${digit ?? 0}').join();
+  }
+
+  void _scheduleDialCompletion() {
+    _dialCompletionTimer?.cancel();
+    if (!_hasCompleteDialCode) return;
+    _dialCompletionTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted || !widget.enabled || !_hasCompleteDialCode) return;
+      final currentValue = _digitsOnly(widget.controller.text);
+      if (currentValue.length == _digitCount && currentValue == _lastValue) {
+        widget.onCompleted?.call(currentValue);
+      }
+    });
   }
 
   @override
@@ -96,6 +170,7 @@ class _OdometerOtpInputState extends State<OdometerOtpInput> with CodeAutoFill {
   @override
   Widget build(BuildContext context) {
     final value = _digitsOnly(widget.controller.text);
+    final displayValue = _displayValueFor(value);
 
     return AutofillGroup(
       child: Column(
@@ -108,8 +183,11 @@ class _OdometerOtpInputState extends State<OdometerOtpInput> with CodeAutoFill {
                   fit: BoxFit.scaleDown,
                   child: _OdometerDisplay(
                     code: value,
+                    displayCode: displayValue,
                     correctOtp: widget.correctOtp,
                     status: widget.status,
+                    enabled: widget.enabled,
+                    onDigitStep: _handleDigitStep,
                   ),
                 );
               },
@@ -152,20 +230,29 @@ class _OdometerOtpInputState extends State<OdometerOtpInput> with CodeAutoFill {
 class _OdometerDisplay extends StatelessWidget {
   const _OdometerDisplay({
     required this.code,
+    required this.displayCode,
     required this.correctOtp,
     required this.status,
+    required this.enabled,
+    required this.onDigitStep,
   });
 
   final String code;
+  final String displayCode;
   final String correctOtp;
   final OdometerOtpStatus? status;
+  final bool enabled;
+  final void Function(int index, int step) onDigitStep;
 
   static const double _gap = 25;
 
   @override
   Widget build(BuildContext context) {
     final value = code.length > 5 ? code.substring(0, 5) : code;
-    final padded = value.padRight(5, '0');
+    final displayValue = displayCode.length > 5
+        ? displayCode.substring(0, 5)
+        : displayCode;
+    final padded = displayValue.padRight(5, '0');
     final isComplete = value.length == 5;
     final hasExplicitResult =
         status == OdometerOtpStatus.success ||
@@ -181,15 +268,21 @@ class _OdometerDisplay extends StatelessWidget {
 
     final children = <Widget>[
       for (var index = 0; index < 2; index++)
-        _OdometerDigit(
+        _SwipeableOdometerDigit(
+          index: index,
           value: int.tryParse(padded[index]) ?? 0,
           isActive: false,
+          enabled: enabled,
+          onStep: (step) => onDigitStep(index, step),
         ),
       const _OdometerSeparator(','),
       for (var index = 2; index < 5; index++)
-        _OdometerDigit(
+        _SwipeableOdometerDigit(
+          index: index,
           value: int.tryParse(padded[index]) ?? 0,
           isActive: index == 4,
+          enabled: enabled,
+          onStep: (step) => onDigitStep(index, step),
         ),
       shouldShowStatus
           ? _StatusIndicator(isCorrect: isCorrect)
@@ -259,6 +352,101 @@ class _OdometerDisplay extends StatelessWidget {
       spaced.add(children[index]);
     }
     return spaced;
+  }
+}
+
+class _SwipeableOdometerDigit extends StatefulWidget {
+  const _SwipeableOdometerDigit({
+    required this.index,
+    required this.value,
+    required this.isActive,
+    required this.enabled,
+    required this.onStep,
+  });
+
+  final int index;
+  final int value;
+  final bool isActive;
+  final bool enabled;
+  final ValueChanged<int> onStep;
+
+  @override
+  State<_SwipeableOdometerDigit> createState() =>
+      _SwipeableOdometerDigitState();
+}
+
+class _SwipeableOdometerDigitState extends State<_SwipeableOdometerDigit> {
+  static const _stepDistance = 24.0;
+  static const _flingVelocity = 320.0;
+
+  double _dragOffset = 0;
+  bool _isDragging = false;
+
+  void _startDrag() {
+    _dragOffset = 0;
+    setState(() => _isDragging = true);
+  }
+
+  void _step(int direction) {
+    widget.onStep(direction);
+    unawaited(HapticFeedback.selectionClick());
+  }
+
+  void _updateDrag(DragUpdateDetails details) {
+    _dragOffset += details.delta.dy;
+    while (_dragOffset <= -_stepDistance) {
+      _dragOffset += _stepDistance;
+      _step(1);
+    }
+    while (_dragOffset >= _stepDistance) {
+      _dragOffset -= _stepDistance;
+      _step(-1);
+    }
+  }
+
+  void _endDrag(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_dragOffset.abs() >= 8 && _dragOffset.abs() < _stepDistance) {
+      _step(_dragOffset < 0 ? 1 : -1);
+    } else if (velocity.abs() >= _flingVelocity) {
+      _step(velocity < 0 ? 1 : -1);
+    }
+
+    _dragOffset = 0;
+    if (mounted) setState(() => _isDragging = false);
+  }
+
+  void _cancelDrag() {
+    _dragOffset = 0;
+    if (mounted) setState(() => _isDragging = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final digit = AnimatedScale(
+      scale: _isDragging ? 1.035 : 1,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      child: _OdometerDigit(value: widget.value, isActive: widget.isActive),
+    );
+
+    if (!widget.enabled) return digit;
+
+    return Semantics(
+      label: 'OTP digit ${widget.index + 1}',
+      hint: 'Swipe up or down to adjust',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeUpDown,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragStart: (_) => _startDrag(),
+          onVerticalDragUpdate: _updateDrag,
+          onVerticalDragEnd: _endDrag,
+          onVerticalDragCancel: _cancelDrag,
+          child: digit,
+        ),
+      ),
+    );
   }
 }
 
