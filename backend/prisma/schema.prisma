@@ -75,22 +75,23 @@ enum NotificationChannel {
 }
 
 model User {
-  id             String          @id @default(cuid())
-  role           Role
-  name           String
-  phone          String          @unique
-  email          String?
-  address        String?
-  gst            String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  cars           Car[]
-  documents      Document[]      @relation("CustomerDocuments")
-  notifications  Notification[]
-  pickupRequests PickupRequest[]
-  loyaltyEntries LoyaltyLedger[]
-  otpCodes       OtpCode[]
-  staffProfile   StaffProfile?
+  id                 String          @id @default(cuid())
+  role               Role
+  name               String
+  phone              String          @unique
+  email              String?
+  dataSharingConsent Boolean         @default(false)
+  address            String?
+  gst                String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  cars               Car[]
+  documents          Document[]      @relation("CustomerDocuments")
+  notifications      Notification[]
+  pickupRequests     PickupRequest[]
+  loyaltyEntries     LoyaltyLedger[]
+  otpCodes           OtpCode[]
+  staffProfile       StaffProfile?
 }
 
 model OtpCode {

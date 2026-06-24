@@ -428,12 +428,18 @@ enum _MatrixType {
   team,
   car,
   dashboard,
+  rupee,
   left,
   right;
 
   static _MatrixType fromLabel(String label) {
     final normalized = label.trim().toLowerCase();
     if (normalized.contains('dashboard')) return _MatrixType.dashboard;
+    if (normalized.contains('salary') ||
+        normalized.contains('rupee') ||
+        normalized.contains('pay')) {
+      return _MatrixType.rupee;
+    }
     if (normalized.contains('right') || normalized.contains('next')) {
       return _MatrixType.right;
     }
@@ -746,6 +752,69 @@ class _MatrixIconPainter extends CustomPainter {
           19: [
             [2, 3],
             [20, 21],
+          ],
+        };
+        return (rows[y] ?? const <List<int>>[]).any(
+          (range) => x >= range[0] && x <= range[1],
+        );
+
+      case _MatrixType.rupee:
+        const rows = {
+          3: [
+            [4, 19],
+          ],
+          4: [
+            [4, 19],
+          ],
+          5: [
+            [12, 15],
+          ],
+          6: [
+            [13, 16],
+          ],
+          7: [
+            [14, 17],
+          ],
+          8: [
+            [4, 19],
+            [14, 17],
+          ],
+          9: [
+            [4, 19],
+            [14, 17],
+          ],
+          10: [
+            [13, 16],
+          ],
+          11: [
+            [12, 15],
+          ],
+          12: [
+            [7, 14],
+          ],
+          13: [
+            [8, 12],
+          ],
+          14: [
+            [9, 11],
+          ],
+          15: [
+            [10, 12],
+          ],
+          16: [
+            [11, 13],
+          ],
+          17: [
+            [12, 14],
+          ],
+          18: [
+            [13, 15],
+          ],
+          19: [
+            [14, 16],
+          ],
+          20: [
+            [15, 17],
           ],
         };
         return (rows[y] ?? const <List<int>>[]).any(

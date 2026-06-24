@@ -187,23 +187,12 @@ abstract final class DocumentPdfExportService {
               child: pw.SizedBox(
                 width: 350,
                 height: 48,
-                child: pw.RichText(
-                  text: pw.TextSpan(
-                    style: pw.TextStyle(
-                      fontSize: 34,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.grey700,
-                    ),
-                    children: [
-                      pw.TextSpan(text: '${data.type.label} '),
-                      pw.TextSpan(
-                        text: '[${data.documentNumberOrDraft}]',
-                        style: pw.TextStyle(
-                          color: PdfColors.red,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                child: pw.Text(
+                  data.type.label,
+                  style: pw.TextStyle(
+                    fontSize: 34,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.grey700,
                   ),
                 ),
               ),

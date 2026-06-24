@@ -8,6 +8,7 @@ import 'package:flywheels/screens/shared/wheels_marketplace_tab.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
+import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ class OwnerHomePage extends StatefulWidget {
 class _OwnerHomePageState extends State<OwnerHomePage> {
   final _picker = ImagePicker();
   final _ownerReplyController = TextEditingController();
+  late final PageController _pageController;
   int _currentIndex = 0;
   String? _preferredCarId;
   String? _selectedOwnerChatUserId;
@@ -33,15 +35,35 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   _OwnerCarProfileFilter _carProfileFilter = _OwnerCarProfileFilter.all;
   String _carProfileSearch = '';
   _OwnerCarProfileSort _carProfileSort = _OwnerCarProfileSort.approvalsFirst;
+  bool _pickingProfilePhoto = false;
 
   static const _wheelsTabIndex = 3;
   static const _chatTabIndex = 4;
   static const _documentsTabIndex = 5;
 
   @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
   void dispose() {
+    _pageController.dispose();
     _ownerReplyController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    setState(() => _pickingProfilePhoto = true);
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (!mounted) return;
+    setState(() => _pickingProfilePhoto = false);
+    if (image == null) return;
+    FlywheelsScope.read(context).updateProfilePhoto(image.path);
   }
 
   Future<void> _addGaragePhoto(
@@ -597,13 +619,29 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
     await showWheelsListingSheet(context, picker: _picker, sourceCar: car);
   }
 
+  void _selectTab(int index) {
+    if (index < 0 || index > 6) return;
+    setState(() => _currentIndex = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  void _handleParentPageChanged(int index) {
+    setState(() => _currentIndex = index);
+  }
+
   void _openChatForCar(CarProfile car) {
     setState(() {
       _selectedOwnerChatUserId = car.userId;
       _selectedOwnerChatCarId = car.id;
       _ownerChatSlideForward = true;
-      _currentIndex = _chatTabIndex;
     });
+    _selectTab(_chatTabIndex);
     FlywheelsScope.read(context).markConversationReadByOwner(car.userId);
   }
 
@@ -617,6 +655,7 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
       'Wheels',
       'Chat',
       'Documents',
+      'Profile',
     ];
 
     return Scaffold(
@@ -635,21 +674,22 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: _handleParentPageChanged,
         children: [
           _OwnerDashboardTab(
             onAssignPickup: (job) => _showPickupAssignmentSheet(context, job),
             onCompletePickup: (job) => _completePickupWithPhoto(context, job),
-            onOpenCars: (filter) => setState(() {
-              _carProfileFilter = filter;
-              _currentIndex = 1;
-            }),
-            onOpenWheels: () => setState(() => _currentIndex = _wheelsTabIndex),
-            onOpenDocuments: (carId) => setState(() {
-              _preferredCarId = carId.isEmpty ? null : carId;
-              _currentIndex = _documentsTabIndex;
-            }),
+            onOpenCars: (filter) {
+              setState(() => _carProfileFilter = filter);
+              _selectTab(1);
+            },
+            onOpenWheels: () => _selectTab(_wheelsTabIndex),
+            onOpenDocuments: (carId) {
+              setState(() => _preferredCarId = carId.isEmpty ? null : carId);
+              _selectTab(_documentsTabIndex);
+            },
             onOpenChat: _openChatForCar,
           ),
           _OwnerOperationsTab(
@@ -662,10 +702,8 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
                 setState(() => _carProfileSearch = value),
             onSortChanged: (value) => setState(() => _carProfileSort = value),
             onOpenDocuments: (carId) {
-              setState(() {
-                _preferredCarId = carId;
-                _currentIndex = _documentsTabIndex;
-              });
+              setState(() => _preferredCarId = carId);
+              _selectTab(_documentsTabIndex);
             },
             onOpenChat: _openChatForCar,
             onAddPhoto: (car, status) =>
@@ -709,17 +747,22 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             onSend: _sendOwnerReply,
           ),
           OwnerDocumentTab(preferredCarId: _preferredCarId),
+          _OwnerProfileTab(
+            onPickProfilePhoto: _pickProfilePhoto,
+            isPickingProfilePhoto: _pickingProfilePhoto,
+          ),
         ],
       ),
       bottomNavigationBar: AppBottomNavBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: _selectTab,
         badgeCounts: [
           0,
           0,
           0,
           0,
           controller.unreadMessageCountForCurrentSession(),
+          0,
           0,
         ],
         items: const [
@@ -754,7 +797,203 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             activeIcon: Icons.receipt_long_rounded,
             label: 'Docs',
           ),
+          AppBottomNavItem(
+            icon: Icons.person_outline_rounded,
+            activeIcon: Icons.person_rounded,
+            label: 'Profile',
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _OwnerProfileTab extends StatelessWidget {
+  const _OwnerProfileTab({
+    required this.onPickProfilePhoto,
+    required this.isPickingProfilePhoto,
+  });
+
+  final VoidCallback onPickProfilePhoto;
+  final bool isPickingProfilePhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    final user = controller.session!.user;
+    final activeJobs = controller.jobs
+        .where((job) => job.status != JobStatus.onRoad)
+        .length;
+    final pendingApprovals =
+        controller.pendingSaleListings.length +
+        controller.workApprovalRequests
+            .where((request) => request.status == RequestStatus.pending)
+            .length +
+        controller.staffAssignmentProposals
+            .where((proposal) => proposal.status == RequestStatus.pending)
+            .length;
+
+    return ListView(
+      key: const PageStorageKey('owner-profile'),
+      padding: const EdgeInsets.all(20),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                MessengerAvatar(
+                  path: user.profileImagePath,
+                  initials: user.name.isNotEmpty
+                      ? user.name.substring(0, 1)
+                      : 'F',
+                  radius: 34,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        user.name,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(user.phone),
+                      const SizedBox(height: 4),
+                      Text(
+                        user.email ?? user.role.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton.outlined(
+                  onPressed: isPickingProfilePhoto ? null : onPickProfilePhoto,
+                  icon: Icon(
+                    isPickingProfilePhoto
+                        ? Icons.hourglass_top_rounded
+                        : Icons.photo_camera_outlined,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          childAspectRatio: 1.55,
+          children: [
+            _OwnerProfileMetric(
+              label: 'Customers',
+              value: controller.customers.length.toString(),
+              icon: Icons.people_outline_rounded,
+            ),
+            _OwnerProfileMetric(
+              label: 'Cars',
+              value: controller.cars.length.toString(),
+              icon: Icons.directions_car_outlined,
+            ),
+            _OwnerProfileMetric(
+              label: 'Active jobs',
+              value: activeJobs.toString(),
+              icon: Icons.build_circle_outlined,
+            ),
+            _OwnerProfileMetric(
+              label: 'Approvals',
+              value: pendingApprovals.toString(),
+              icon: Icons.verified_outlined,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 6,
+              ),
+              childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              title: Text(
+                'Garage overview',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.groups_outlined),
+                  title: const Text('Team members'),
+                  trailing: Text(controller.staffProfiles.length.toString()),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.receipt_long_outlined),
+                  title: const Text('Documents'),
+                  trailing: Text(controller.documents.length.toString()),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.notifications_none_rounded),
+                  title: const Text('Alerts'),
+                  trailing: Text(controller.notifications.length.toString()),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: controller.logout,
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Logout'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OwnerProfileMetric extends StatelessWidget {
+  const _OwnerProfileMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Icon(icon, color: AppPalette.red),
+            Text(value, style: Theme.of(context).textTheme.headlineMedium),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2007,6 +2246,25 @@ class _OwnerOperationsTab extends StatelessWidget {
     return cars;
   }
 
+  String _mechanicHistoryText(AppController controller, ServiceJob job) {
+    final people = <String>[];
+    if (job.masterMechanicId != null && job.masterMechanicId!.isNotEmpty) {
+      final master = controller.staffById(job.masterMechanicId!);
+      people.add('Master: ${master?.name ?? 'Assigned'}');
+    }
+    final mechanics = job.mechanicIds
+        .map((id) => controller.staffById(id)?.name)
+        .whereType<String>()
+        .toList();
+    if (mechanics.isNotEmpty) {
+      people.add('Mechanics: ${mechanics.join(', ')}');
+    }
+    if (job.pickupPersonName != null && job.pickupPersonName!.isNotEmpty) {
+      people.add('Pickup: ${job.pickupPersonName}');
+    }
+    return people.isEmpty ? 'No mechanic assigned yet' : people.join(' | ');
+  }
+
   int _compareCars(
     AppController controller,
     CarProfile left,
@@ -2254,7 +2512,7 @@ class _OwnerOperationsTab extends StatelessWidget {
                       leading: const Icon(Icons.timeline_rounded),
                       title: Text(item.status.label),
                       subtitle: Text(
-                        'ETA ${formatDateTime(item.expectedCompletion)} | Pickup ${item.pickupState.label}',
+                        'ETA ${formatDateTime(item.expectedCompletion)} | ${_mechanicHistoryText(controller, item)}',
                       ),
                     ),
                   ),
@@ -2312,12 +2570,6 @@ class _OwnerOperationsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
     final visibleCars = _visibleCars(controller);
-    final pendingApprovalCount = controller.cars.fold<int>(
-      0,
-      (count, car) =>
-          count + _pendingApprovalRequestsForCar(controller, car).length,
-    );
-
     return ListView(
       key: const PageStorageKey('owner-operations'),
       padding: const EdgeInsets.all(16),
@@ -2350,14 +2602,48 @@ class _OwnerOperationsTab extends StatelessWidget {
         Row(
           children: [
             Expanded(
+              child: DropdownButtonFormField<_OwnerCarProfileFilter>(
+                initialValue: filter,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: _OwnerCarProfileFilter.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Row(
+                          children: [
+                            Icon(value.icon, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                value.label,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) onFilterChanged(value);
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
               child: DropdownButtonFormField<_OwnerCarProfileSort>(
                 initialValue: sort,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Sort'),
                 items: _OwnerCarProfileSort.values
                     .map(
                       (value) => DropdownMenuItem(
                         value: value,
-                        child: Text(value.label),
+                        child: Text(
+                          value.label,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),
@@ -2366,32 +2652,7 @@ class _OwnerOperationsTab extends StatelessWidget {
                 },
               ),
             ),
-            const SizedBox(width: 10),
-            _OwnerCarMetaChip(
-              icon: Icons.mark_chat_unread_outlined,
-              label:
-                  '$pendingApprovalCount approval${pendingApprovalCount == 1 ? '' : 's'}',
-            ),
           ],
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: _OwnerCarProfileFilter.values.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              final value = _OwnerCarProfileFilter.values[index];
-              return FilterChip(
-                showCheckmark: false,
-                avatar: Icon(value.icon, size: 16),
-                label: Text(value.label),
-                selected: filter == value,
-                onSelected: (_) => onFilterChanged(value),
-              );
-            },
-          ),
         ),
         const SizedBox(height: 12),
         if (visibleCars.isEmpty)
@@ -2477,12 +2738,6 @@ class _OwnerOperationsTab extends StatelessWidget {
                                       icon: Icons.description_outlined,
                                       label: '${documents.length} docs',
                                     ),
-                                    if (pendingApprovals.isNotEmpty)
-                                      _OwnerCarMetaChip(
-                                        icon: Icons.mark_chat_unread_outlined,
-                                        label:
-                                            '${pendingApprovals.length} approval${pendingApprovals.length == 1 ? '' : 's'}',
-                                      ),
                                   ],
                                 ),
                               ],
@@ -2725,58 +2980,45 @@ class _EmptyOwnerList extends StatelessWidget {
   }
 }
 
-enum _OwnerTeamView { home, attendance, payroll }
-
-class _OwnerTeamTab extends StatefulWidget {
+class _OwnerTeamTab extends StatelessWidget {
   const _OwnerTeamTab({required this.onAddStaff, required this.onEditStaff});
 
   final VoidCallback onAddStaff;
   final ValueChanged<StaffProfile> onEditStaff;
 
   @override
-  State<_OwnerTeamTab> createState() => _OwnerTeamTabState();
-}
-
-class _OwnerTeamTabState extends State<_OwnerTeamTab> {
-  _OwnerTeamView _view = _OwnerTeamView.home;
-
-  @override
   Widget build(BuildContext context) {
-    return ListView(
-      key: const PageStorageKey('owner-team'),
-      padding: const EdgeInsets.all(16),
-      children: [
-        SegmentedButton<_OwnerTeamView>(
-          segments: const [
-            ButtonSegment(
-              value: _OwnerTeamView.home,
-              icon: Icon(Icons.home_repair_service_outlined),
-              label: Text('Home'),
-            ),
-            ButtonSegment(
-              value: _OwnerTeamView.attendance,
-              icon: Icon(Icons.how_to_reg_outlined),
-              label: Text('Attendance'),
-            ),
-            ButtonSegment(
-              value: _OwnerTeamView.payroll,
-              icon: Icon(Icons.payments_outlined),
-              label: Text('Payroll'),
-            ),
-          ],
-          selected: {_view},
-          onSelectionChanged: (selection) =>
-              setState(() => _view = selection.first),
-        ),
-        const SizedBox(height: 14),
-        switch (_view) {
-          _OwnerTeamView.home => _OwnerTeamHomeSection(
-            onAddStaff: widget.onAddStaff,
-            onEditStaff: widget.onEditStaff,
+    return AppInnerTabs(
+      tabs: [
+        AppInnerTab(
+          label: 'Home',
+          child: ListView(
+            key: const PageStorageKey('owner-team-home'),
+            padding: const EdgeInsets.all(16),
+            children: [
+              _OwnerTeamHomeSection(
+                onAddStaff: onAddStaff,
+                onEditStaff: onEditStaff,
+              ),
+            ],
           ),
-          _OwnerTeamView.attendance => const _OwnerAttendanceSection(),
-          _OwnerTeamView.payroll => const _OwnerPayrollSection(),
-        },
+        ),
+        AppInnerTab(
+          label: 'Attendance',
+          child: ListView(
+            key: const PageStorageKey('owner-team-attendance'),
+            padding: const EdgeInsets.all(16),
+            children: const [_OwnerAttendanceSection()],
+          ),
+        ),
+        AppInnerTab(
+          label: 'Payroll',
+          child: ListView(
+            key: const PageStorageKey('owner-team-payroll'),
+            padding: const EdgeInsets.all(16),
+            children: const [_OwnerPayrollSection()],
+          ),
+        ),
       ],
     );
   }
@@ -2855,12 +3097,558 @@ class _OwnerTeamHomeSection extends StatelessWidget {
               .toList(),
         ),
         const SizedBox(height: 14),
-        Text('Staff directory', style: Theme.of(context).textTheme.titleMedium),
+        _OwnerStaffProfilesPanel(onEditStaff: onEditStaff),
+      ],
+    );
+  }
+}
+
+enum _OwnerStaffProfileFilter {
+  all,
+  masterMechanics,
+  mechanics,
+  active,
+  inactive,
+  requests,
+}
+
+extension _OwnerStaffProfileFilterX on _OwnerStaffProfileFilter {
+  String get label {
+    switch (this) {
+      case _OwnerStaffProfileFilter.all:
+        return 'All staff';
+      case _OwnerStaffProfileFilter.masterMechanics:
+        return 'Master Mechanics';
+      case _OwnerStaffProfileFilter.mechanics:
+        return 'Mechanics';
+      case _OwnerStaffProfileFilter.active:
+        return 'Active';
+      case _OwnerStaffProfileFilter.inactive:
+        return 'Inactive';
+      case _OwnerStaffProfileFilter.requests:
+        return 'Requests';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _OwnerStaffProfileFilter.all:
+        return Icons.groups_outlined;
+      case _OwnerStaffProfileFilter.masterMechanics:
+        return Icons.engineering_outlined;
+      case _OwnerStaffProfileFilter.mechanics:
+        return Icons.build_outlined;
+      case _OwnerStaffProfileFilter.active:
+        return Icons.verified_user_outlined;
+      case _OwnerStaffProfileFilter.inactive:
+        return Icons.person_off_outlined;
+      case _OwnerStaffProfileFilter.requests:
+        return Icons.mark_chat_unread_outlined;
+    }
+  }
+}
+
+enum _OwnerStaffProfileSort {
+  requestsFirst,
+  name,
+  role,
+  carsHandled,
+  attendance,
+  salary,
+}
+
+extension _OwnerStaffProfileSortX on _OwnerStaffProfileSort {
+  String get label {
+    switch (this) {
+      case _OwnerStaffProfileSort.requestsFirst:
+        return 'Requests first';
+      case _OwnerStaffProfileSort.name:
+        return 'Name';
+      case _OwnerStaffProfileSort.role:
+        return 'Role';
+      case _OwnerStaffProfileSort.carsHandled:
+        return 'Cars handled';
+      case _OwnerStaffProfileSort.attendance:
+        return 'Attendance';
+      case _OwnerStaffProfileSort.salary:
+        return 'Salary';
+    }
+  }
+}
+
+class _OwnerStaffProfilesPanel extends StatefulWidget {
+  const _OwnerStaffProfilesPanel({required this.onEditStaff});
+
+  final ValueChanged<StaffProfile> onEditStaff;
+
+  @override
+  State<_OwnerStaffProfilesPanel> createState() =>
+      _OwnerStaffProfilesPanelState();
+}
+
+class _OwnerStaffProfilesPanelState extends State<_OwnerStaffProfilesPanel> {
+  String _searchQuery = '';
+  _OwnerStaffProfileFilter _filter = _OwnerStaffProfileFilter.all;
+  _OwnerStaffProfileSort _sort = _OwnerStaffProfileSort.requestsFirst;
+
+  List<WorkApprovalRequest> _workRequestsForStaff(
+    AppController controller,
+    StaffProfile staff,
+  ) {
+    return controller.workApprovalRequests
+        .where((request) => request.staffId == staff.id)
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<StaffAssignmentProposal> _teamRequestsForStaff(
+    AppController controller,
+    StaffProfile staff,
+  ) {
+    return controller.staffAssignmentProposals
+        .where(
+          (proposal) =>
+              proposal.masterMechanicId == staff.id ||
+              proposal.mechanicIds.contains(staff.id),
+        )
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  int _pendingRequestCount(AppController controller, StaffProfile staff) {
+    final advances = controller
+        .advancesForStaff(staff.id)
+        .where((advance) => advance.status == RequestStatus.pending)
+        .length;
+    final leaves = controller
+        .leavesForStaff(staff.id)
+        .where((leave) => leave.status == RequestStatus.pending)
+        .length;
+    final work = _workRequestsForStaff(
+      controller,
+      staff,
+    ).where((request) => request.status == RequestStatus.pending).length;
+    final teams = _teamRequestsForStaff(
+      controller,
+      staff,
+    ).where((proposal) => proposal.status == RequestStatus.pending).length;
+    return advances + leaves + work + teams;
+  }
+
+  List<CarProfile> _handledCars(AppController controller, StaffProfile staff) {
+    final seen = <String>{};
+    final cars = <CarProfile>[];
+    for (final job in controller.jobsForStaff(staff.id)) {
+      final car = controller.carForJob(job);
+      if (car != null && seen.add(car.id)) {
+        cars.add(car);
+      }
+    }
+    return cars;
+  }
+
+  bool _matchesFilter(AppController controller, StaffProfile staff) {
+    switch (_filter) {
+      case _OwnerStaffProfileFilter.all:
+        return true;
+      case _OwnerStaffProfileFilter.masterMechanics:
+        return staff.role == StaffRole.masterMechanic;
+      case _OwnerStaffProfileFilter.mechanics:
+        return staff.role == StaffRole.mechanic;
+      case _OwnerStaffProfileFilter.active:
+        return staff.isActive;
+      case _OwnerStaffProfileFilter.inactive:
+        return !staff.isActive;
+      case _OwnerStaffProfileFilter.requests:
+        return _pendingRequestCount(controller, staff) > 0;
+    }
+  }
+
+  bool _matchesSearch(AppController controller, StaffProfile staff) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final cars = _handledCars(
+      controller,
+      staff,
+    ).map((car) => '${car.carNumber} ${car.model}').join(' ');
+    final advances = controller
+        .advancesForStaff(staff.id)
+        .map((advance) => advance.reason)
+        .join(' ');
+    final leaves = controller
+        .leavesForStaff(staff.id)
+        .map((leave) => leave.reason)
+        .join(' ');
+    final work = _workRequestsForStaff(
+      controller,
+      staff,
+    ).map((request) => '${request.title} ${request.message}').join(' ');
+    final text = [
+      staff.name,
+      staff.phone,
+      staff.role.label,
+      staff.primarySkill,
+      staff.monthlySalary.toStringAsFixed(0),
+      cars,
+      advances,
+      leaves,
+      work,
+    ].join(' ').toLowerCase();
+    return text.contains(query);
+  }
+
+  List<StaffProfile> _visibleStaff(AppController controller) {
+    final staff = controller.staffProfiles
+        .where(
+          (profile) =>
+              _matchesFilter(controller, profile) &&
+              _matchesSearch(controller, profile),
+        )
+        .toList();
+    staff.sort((left, right) => _compareStaff(controller, left, right));
+    return staff;
+  }
+
+  int _compareStaff(
+    AppController controller,
+    StaffProfile left,
+    StaffProfile right,
+  ) {
+    int requestsFirst() {
+      final requestCompare = _pendingRequestCount(
+        controller,
+        right,
+      ).compareTo(_pendingRequestCount(controller, left));
+      if (requestCompare != 0) return requestCompare;
+      return left.name.compareTo(right.name);
+    }
+
+    switch (_sort) {
+      case _OwnerStaffProfileSort.requestsFirst:
+        return requestsFirst();
+      case _OwnerStaffProfileSort.name:
+        return left.name.compareTo(right.name);
+      case _OwnerStaffProfileSort.role:
+        final roleCompare = left.role.label.compareTo(right.role.label);
+        if (roleCompare != 0) return roleCompare;
+        return left.name.compareTo(right.name);
+      case _OwnerStaffProfileSort.carsHandled:
+        final carCompare = _handledCars(
+          controller,
+          right,
+        ).length.compareTo(_handledCars(controller, left).length);
+        if (carCompare != 0) return carCompare;
+        return requestsFirst();
+      case _OwnerStaffProfileSort.attendance:
+        final attendanceCompare = controller
+            .attendanceForStaff(right.id)
+            .length
+            .compareTo(controller.attendanceForStaff(left.id).length);
+        if (attendanceCompare != 0) return attendanceCompare;
+        return requestsFirst();
+      case _OwnerStaffProfileSort.salary:
+        final salaryCompare = right.monthlySalary.compareTo(left.monthlySalary);
+        if (salaryCompare != 0) return salaryCompare;
+        return requestsFirst();
+    }
+  }
+
+  void _showStaffDetail(
+    BuildContext context,
+    AppController controller,
+    StaffProfile staff,
+  ) {
+    final jobs = controller.jobsForStaff(staff.id);
+    final cars = _handledCars(controller, staff);
+    final attendance = controller.attendanceForStaff(staff.id);
+    final advances = controller.advancesForStaff(staff.id);
+    final leaves = controller.leavesForStaff(staff.id);
+    final slips = controller.salarySlipsForStaff(staff.id);
+    final workRequests = _workRequestsForStaff(controller, staff);
+    final teamRequests = _teamRequestsForStaff(controller, staff);
+    final requestTiles = <Widget>[
+      ...advances
+          .take(4)
+          .map(
+            (advance) => _OwnerSimpleTile(
+              icon: Icons.payments_outlined,
+              title:
+                  'Advance ${formatCurrency(advance.amount)} | ${advance.status.label}',
+              subtitle:
+                  '${advance.reason} | ${formatShortDate(advance.requestedAt)}',
+            ),
+          ),
+      ...leaves
+          .take(4)
+          .map(
+            (leave) => _OwnerSimpleTile(
+              icon: Icons.event_busy_outlined,
+              title:
+                  'Leave ${formatShortDate(leave.fromDate)}-${formatShortDate(leave.toDate)} | ${leave.status.label}',
+              subtitle: leave.reason,
+            ),
+          ),
+      ...workRequests
+          .take(4)
+          .map(
+            (request) => _OwnerSimpleTile(
+              icon: Icons.approval_outlined,
+              title: '${request.title} | ${request.status.label}',
+              subtitle:
+                  '${request.message} | ${formatShortDate(request.createdAt)}',
+            ),
+          ),
+      ...teamRequests.take(4).map((proposal) {
+        final job = controller.jobs
+            .where((item) => item.id == proposal.jobId)
+            .firstOrNull;
+        final car = job == null ? null : controller.carForJob(job);
+        return _OwnerSimpleTile(
+          icon: Icons.groups_outlined,
+          title:
+              'Team assignment | ${proposal.status.label} | ${car?.carNumber ?? 'Vehicle'}',
+          subtitle: formatShortDate(proposal.createdAt),
+        );
+      }),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.82,
+              child: ListView(
+                children: [
+                  Row(
+                    children: [
+                      MessengerAvatar(
+                        path: staff.profileImagePath,
+                        initials: staff.name.substring(0, 1),
+                        radius: 30,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              staff.name,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text(
+                              '${staff.role.label} | ${staff.primarySkill}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            Text(
+                              '${staff.phone} | ${staff.isActive ? 'Active' : 'Inactive'}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton.outlined(
+                        tooltip: 'Edit staff',
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          widget.onEditStaff(staff);
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _OwnerCarMetaChip(
+                        icon: Icons.payments_outlined,
+                        label: formatCurrency(staff.monthlySalary),
+                      ),
+                      _OwnerCarMetaChip(
+                        icon: Icons.directions_car_outlined,
+                        label: '${cars.length} cars handled',
+                      ),
+                      _OwnerCarMetaChip(
+                        icon: Icons.how_to_reg_outlined,
+                        label: '${attendance.length} attendance',
+                      ),
+                      _OwnerCarMetaChip(
+                        icon: Icons.receipt_long_outlined,
+                        label: '${slips.length} payslips',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _OwnerTeamSection(
+                    title: 'Requests',
+                    emptyText: 'No requests recorded for this staff profile.',
+                    children: requestTiles,
+                  ),
+                  const SizedBox(height: 14),
+                  _OwnerTeamSection(
+                    title: 'Generated payslips',
+                    emptyText: 'No payslips generated yet.',
+                    children: slips
+                        .take(6)
+                        .map(
+                          (slip) => _OwnerSimpleTile(
+                            icon: Icons.receipt_long_outlined,
+                            title:
+                                '${slip.monthLabel} | Net ${formatCurrency(slip.netPay)}',
+                            subtitle:
+                                'Gross ${formatCurrency(slip.grossPay)} | Advance ${formatCurrency(slip.advanceDeduction)} | Leave ${formatCurrency(slip.leaveDeduction)}',
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  _OwnerTeamSection(
+                    title: 'Attendance reports',
+                    emptyText: 'No attendance records yet.',
+                    children: attendance
+                        .take(8)
+                        .map(
+                          (entry) => _OwnerSimpleTile(
+                            icon: Icons.how_to_reg_outlined,
+                            title:
+                                '${formatShortDate(entry.date)} | ${entry.status.label}',
+                            subtitle:
+                                'Face ${entry.faceVerified ? 'verified' : 'pending'} | Location ${entry.locationVerified ? 'verified' : 'pending'}${entry.note == null ? '' : ' | ${entry.note}'}',
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  _OwnerTeamSection(
+                    title: 'Cars handled',
+                    emptyText: 'No cars handled yet.',
+                    children: jobs.take(8).map((job) {
+                      final car = controller.carForJob(job);
+                      final role = job.masterMechanicId == staff.id
+                          ? 'Master'
+                          : job.mechanicIds.contains(staff.id)
+                          ? 'Mechanic'
+                          : 'Pickup';
+                      return _OwnerSimpleTile(
+                        icon: Icons.directions_car_outlined,
+                        title:
+                            '${car?.carNumber ?? 'Vehicle'} | ${job.status.label}',
+                        subtitle:
+                            '$role | ${car?.model ?? '-'} | ETA ${formatDateTime(job.expectedCompletion)}',
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    final visibleStaff = _visibleStaff(controller);
+    final pendingRequests = controller.staffProfiles.fold<int>(
+      0,
+      (sum, staff) => sum + _pendingRequestCount(controller, staff),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Staff profiles', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        ...controller.staffProfiles.map(
-          (staff) => _StaffDirectoryCard(
+        TextFormField(
+          initialValue: _searchQuery,
+          onChanged: (value) => setState(() => _searchQuery = value),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search_rounded),
+            labelText: 'Search mechanics, requests, cars',
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<_OwnerStaffProfileFilter>(
+                initialValue: _filter,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Filter'),
+                items: _OwnerStaffProfileFilter.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Row(
+                          children: [
+                            Icon(value.icon, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                value.label,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _filter = value);
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<_OwnerStaffProfileSort>(
+                initialValue: _sort,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Sort'),
+                items: _OwnerStaffProfileSort.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(
+                          value.label,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _sort = value);
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _OwnerCarMetaChip(
+          icon: Icons.mark_chat_unread_outlined,
+          label:
+              '$pendingRequests request${pendingRequests == 1 ? '' : 's'} pending',
+        ),
+        const SizedBox(height: 12),
+        if (visibleStaff.isEmpty)
+          const _EmptyOwnerList(message: 'No staff profiles match this view.'),
+        ...visibleStaff.map(
+          (staff) => _OwnerStaffProfileCard(
             staff: staff,
-            onEdit: () => onEditStaff(staff),
+            carsHandled: _handledCars(controller, staff).length,
+            attendanceCount: controller.attendanceForStaff(staff.id).length,
+            payslipCount: controller.salarySlipsForStaff(staff.id).length,
+            pendingRequests: _pendingRequestCount(controller, staff),
+            onTap: () => _showStaffDetail(context, controller, staff),
+            onEdit: () => widget.onEditStaff(staff),
           ),
         ),
       ],
@@ -3149,6 +3937,11 @@ class _WorkApprovalCard extends StatelessWidget {
         .firstOrNull;
     final car = job == null ? null : controller.carForJob(job);
     final staff = controller.staffById(request.staffId);
+    final isDone =
+        request.status != RequestStatus.pending || request.forwardedToCustomer;
+    final statusLabel = request.forwardedToCustomer
+        ? 'Approved and sent to customer'
+        : request.status.label;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -3186,37 +3979,43 @@ class _WorkApprovalCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => controller.decideWorkApprovalRequest(
-                  request.id,
-                  RequestStatus.rejected,
+          if (isDone)
+            _OwnerCarMetaChip(
+              icon: Icons.check_circle_outline_rounded,
+              label: statusLabel,
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => controller.decideWorkApprovalRequest(
+                    request.id,
+                    RequestStatus.rejected,
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('Reject'),
                 ),
-                icon: const Icon(Icons.close_rounded),
-                label: const Text('Reject'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => controller.decideWorkApprovalRequest(
-                  request.id,
-                  RequestStatus.approved,
+                FilledButton.icon(
+                  onPressed: () {
+                    controller.decideWorkApprovalRequest(
+                      request.id,
+                      RequestStatus.approved,
+                      forwardToCustomer: true,
+                      ownerResponse: 'Approved by owner and sent to customer.',
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Approved and sent to customer.'),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('Approve'),
                 ),
-                icon: const Icon(Icons.check_rounded),
-                label: const Text('Owner approve'),
-              ),
-              FilledButton.icon(
-                onPressed: () => controller.decideWorkApprovalRequest(
-                  request.id,
-                  RequestStatus.approved,
-                  forwardToCustomer: true,
-                ),
-                icon: const Icon(Icons.forward_to_inbox_rounded),
-                label: const Text('Forward'),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
@@ -3330,47 +4129,136 @@ class _OwnerDecisionCard extends StatelessWidget {
   }
 }
 
-class _StaffDirectoryCard extends StatelessWidget {
-  const _StaffDirectoryCard({required this.staff, required this.onEdit});
+class _OwnerStaffProfileCard extends StatelessWidget {
+  const _OwnerStaffProfileCard({
+    required this.staff,
+    required this.carsHandled,
+    required this.attendanceCount,
+    required this.payslipCount,
+    required this.pendingRequests,
+    required this.onTap,
+    required this.onEdit,
+  });
 
   final StaffProfile staff;
+  final int carsHandled;
+  final int attendanceCount;
+  final int payslipCount;
+  final int pendingRequests;
+  final VoidCallback onTap;
   final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            MessengerAvatar(
-              path: staff.profileImagePath,
-              initials: staff.name.substring(0, 1),
-              radius: 23,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    staff.name,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  Text(
-                    '${staff.role.label} | ${staff.primarySkill} | ${formatCurrency(staff.monthlySalary)}',
-                    style: Theme.of(context).textTheme.bodySmall,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    MessengerAvatar(
+                      path: staff.profileImagePath,
+                      initials: staff.name.substring(0, 1),
+                      radius: 25,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  staff.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                              ),
+                              if (pendingRequests > 0)
+                                _OwnerApprovalBadge(count: pendingRequests)
+                              else
+                                LedIndicator(active: staff.isActive),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${staff.role.label} | ${staff.primarySkill}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _OwnerCarMetaChip(
+                                icon: Icons.payments_outlined,
+                                label: formatCurrency(staff.monthlySalary),
+                              ),
+                              _OwnerCarMetaChip(
+                                icon: Icons.directions_car_outlined,
+                                label: '$carsHandled cars',
+                              ),
+                              _OwnerCarMetaChip(
+                                icon: Icons.how_to_reg_outlined,
+                                label: '$attendanceCount attendance',
+                              ),
+                              _OwnerCarMetaChip(
+                                icon: Icons.receipt_long_outlined,
+                                label: '$payslipCount payslips',
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      tooltip: 'Edit staff',
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  ],
+                ),
+                if (pendingRequests > 0) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppPalette.soft,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppPalette.border),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.mark_chat_unread_outlined),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '$pendingRequests request${pendingRequests == 1 ? '' : 's'} need owner action',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right_rounded),
+                      ],
+                    ),
                   ),
                 ],
-              ),
+              ],
             ),
-            IconButton.outlined(
-              tooltip: 'Edit staff',
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_outlined),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -3496,9 +4384,6 @@ class _OwnerChatTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
-    final selectedCustomer = selectedUserId == null
-        ? null
-        : controller.userById(selectedUserId!);
 
     if (selectedUserId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3506,24 +4391,77 @@ class _OwnerChatTab extends StatelessWidget {
       });
     }
 
+    return AppInnerTabs(
+      currentIndex: ChatChannel.values.indexOf(channel),
+      onChanged: (value) => onChannelChanged(ChatChannel.values[value]),
+      tabs: ChatChannel.values
+          .map(
+            (item) => AppInnerTab(
+              label: item.label,
+              child: _OwnerChatChannelView(
+                key: PageStorageKey('owner-chat-channel-${item.name}'),
+                selectedUserId: selectedUserId,
+                selectedCarId: selectedCarId,
+                channel: item,
+                searchQuery: searchQuery,
+                slideForward: slideForward,
+                replyController: replyController,
+                onUserChanged: onUserChanged,
+                onBack: onBack,
+                onCarChanged: onCarChanged,
+                onSearchChanged: onSearchChanged,
+                onSendDocument: onSendDocument,
+                onSendPhoto: onSendPhoto,
+                onSend: onSend,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _OwnerChatChannelView extends StatelessWidget {
+  const _OwnerChatChannelView({
+    super.key,
+    required this.selectedUserId,
+    required this.selectedCarId,
+    required this.channel,
+    required this.searchQuery,
+    required this.slideForward,
+    required this.replyController,
+    required this.onUserChanged,
+    required this.onBack,
+    required this.onCarChanged,
+    required this.onSearchChanged,
+    required this.onSendDocument,
+    required this.onSendPhoto,
+    required this.onSend,
+  });
+
+  final String? selectedUserId;
+  final String? selectedCarId;
+  final ChatChannel channel;
+  final String searchQuery;
+  final bool slideForward;
+  final TextEditingController replyController;
+  final ValueChanged<String?> onUserChanged;
+  final VoidCallback onBack;
+  final ValueChanged<String?> onCarChanged;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<ServiceDocument> onSendDocument;
+  final VoidCallback onSendPhoto;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    final selectedCustomer = selectedUserId == null
+        ? null
+        : controller.userById(selectedUserId!);
+
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-          child: SegmentedButton<ChatChannel>(
-            segments: ChatChannel.values
-                .map(
-                  (item) => ButtonSegment<ChatChannel>(
-                    value: item,
-                    label: Text(item.label),
-                  ),
-                )
-                .toList(),
-            selected: {channel},
-            onSelectionChanged: (selection) =>
-                onChannelChanged(selection.first),
-          ),
-        ),
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),

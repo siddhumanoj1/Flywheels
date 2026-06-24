@@ -81,10 +81,6 @@ class _TemplatePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final safeNumber = documentNumber.trim().isEmpty
-        ? 'Draft'
-        : documentNumber.trim();
-
     return Container(
       color: AppPalette.white,
       padding: padding,
@@ -103,22 +99,14 @@ class _TemplatePage extends StatelessWidget {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
-                  child: RichText(
+                  child: Text(
+                    type.label,
                     maxLines: 1,
-                    text: TextSpan(
-                      style: textTheme.headlineMedium?.copyWith(
-                        fontSize: 42,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.black.withValues(alpha: 0.56),
-                        letterSpacing: 0,
-                      ),
-                      children: [
-                        TextSpan(text: '${type.label} '),
-                        TextSpan(
-                          text: '[$safeNumber]',
-                          style: const TextStyle(color: AppPalette.red),
-                        ),
-                      ],
+                    style: textTheme.headlineMedium?.copyWith(
+                      fontSize: 42,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black.withValues(alpha: 0.56),
+                      letterSpacing: 0,
                     ),
                   ),
                 ),

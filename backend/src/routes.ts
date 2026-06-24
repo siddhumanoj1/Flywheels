@@ -31,6 +31,13 @@ const carSchema = z.object({
   userId: z.string().optional(),
 });
 
+const customerAccountSchema = phoneSchema.extend({
+  name: z.string().trim().min(1),
+  email: z.string().trim().email().optional(),
+  dataSharingConsent: z.literal(true),
+  car: carSchema.omit({ userId: true }).optional(),
+});
+
 const documentSaveSchema = z.object({
   jobId: z.string().optional(),
   carId: z.string().optional(),
@@ -95,6 +102,57 @@ router.get('/health', (_req, res) => {
     message: 'FLYWHEELS AUTO backend healthy',
     uptime: process.uptime(),
   });
+});
+
+router.post('/api/v1/auth/customer-account', async (req, res, next) => {
+  try {
+    const payload = customerAccountSchema.parse(req.body);
+    const existingUser = await prisma.user.findUnique({
+      where: { phone: payload.phone },
+    });
+    if (existingUser) {
+      throw new AppError(409, 'Phone number already registered.');
+    }
+
+    const createdUser = await prisma.user.create({
+      data: {
+        role: Role.CUSTOMER,
+        name: payload.name,
+        phone: payload.phone,
+        email: payload.email,
+        dataSharingConsent: payload.dataSharingConsent,
+        cars: payload.car
+          ? {
+              create: {
+                carNumber: payload.car.carNumber.trim().toUpperCase(),
+                model: payload.car.model.trim(),
+                fuelType: payload.car.fuelType.trim(),
+                year: payload.car.year,
+                isActive: true,
+              },
+            }
+          : undefined,
+      },
+      include: { cars: true },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        user: {
+          id: createdUser.id,
+          role: serializeRole(createdUser.role),
+          name: createdUser.name,
+          phone: createdUser.phone,
+          email: createdUser.email,
+          dataSharingConsent: createdUser.dataSharingConsent,
+        },
+        car: createdUser.cars[0] ?? null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post('/api/v1/auth/request-otp', async (req, res, next) => {
@@ -180,6 +238,8 @@ router.post('/api/v1/auth/verify-otp', async (req, res, next) => {
         role: serializeRole(user.role),
         name: user.name,
         phone: user.phone,
+        email: user.email,
+        dataSharingConsent: user.dataSharingConsent,
       },
     });
   } catch (error) {
@@ -206,6 +266,7 @@ router.get('/api/v1/me', requireAuth, async (req: AuthenticatedRequest, res, nex
         role: serializeRole(user.role),
         phone: user.phone,
         email: user.email,
+        dataSharingConsent: user.dataSharingConsent,
         address: user.address,
         gst: user.gst,
         loyaltyPoints: user.loyaltyEntries.reduce((sum, entry) => sum + entry.points, 0),

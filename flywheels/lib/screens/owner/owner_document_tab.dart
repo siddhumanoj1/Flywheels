@@ -7,6 +7,7 @@ import 'package:flywheels/services/document_builder_service.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
 import 'package:flywheels/widgets/document_template_preview.dart';
+import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flutter/material.dart';
 
 class OwnerDocumentTab extends StatefulWidget {
@@ -19,6 +20,8 @@ class OwnerDocumentTab extends StatefulWidget {
 }
 
 class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
+  static const _newCustomerChoiceId = '__new_customer__';
+
   final _scrollController = ScrollController();
   final _rawTextController = TextEditingController();
   final _documentNumberController = TextEditingController();
@@ -32,6 +35,8 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
   );
 
   DocumentType _selectedType = DocumentType.invoice;
+  bool _hasSelectedDocumentType = false;
+  bool _hasParsedDocument = false;
   bool _useExistingCustomer = true;
   bool _showLibrary = false;
   bool _libraryNewestFirst = true;
@@ -104,7 +109,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
   void _applyDraft(DocumentDraft draft) {
     setState(() {
       _selectedType = draft.type;
-      _selectedCarId = draft.selectedCarId ?? _selectedCarId;
+      if (draft.selectedCarId != null && draft.selectedCarId!.isNotEmpty) {
+        _selectedCarId = draft.selectedCarId;
+      }
       _documentNumberController.text = draft.documentNumber;
       _customerNameController.text = draft.customerName;
       _customerPhoneController.text = draft.customerPhone;
@@ -190,60 +197,70 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _buildModeSwitch() {
-    return SegmentedButton<bool>(
-      segments: const [
-        ButtonSegment<bool>(
-          value: false,
-          icon: Icon(Icons.edit_document),
-          label: Text('Document Studio'),
-        ),
-        ButtonSegment<bool>(
-          value: true,
-          icon: Icon(Icons.library_books_outlined),
-          label: Text('Document Library'),
-        ),
-      ],
-      selected: {_showLibrary},
-      onSelectionChanged: (selection) =>
-          setState(() => _showLibrary = selection.first),
-    );
-  }
-
   void _parseDocument() {
     try {
       final controller = FlywheelsScope.of(context);
       final selectedCar = controller.cars
           .where((car) => car.id == _selectedCarId)
           .firstOrNull;
+      final draftCar = selectedCar ?? _newCustomerDraftCar();
       final draft = DocumentBuilderService.parseOwnerInput(
         _rawTextController.text,
         fallbackType: _selectedType,
-        selectedCar: selectedCar,
+        selectedCar: draftCar,
+        attachSelectedCar: selectedCar != null,
       );
       _applyDraft(
         draft.copyWith(
           documentNumber: _documentNumberController.text.trim().isEmpty
               ? _nextDocumentNumber(draft.type)
               : _documentNumberController.text.trim(),
-          customerName: draft.customerName.isEmpty
+          customerName: !_useExistingCustomer
+              ? _customerNameController.text.trim()
+              : draft.customerName.isEmpty
               ? _customerNameController.text.trim()
               : draft.customerName,
-          customerPhone: draft.customerPhone.isEmpty
+          customerPhone: !_useExistingCustomer
+              ? _customerPhoneController.text.trim()
+              : draft.customerPhone.isEmpty
               ? _customerPhoneController.text.trim()
               : draft.customerPhone,
-          vehicleNumber: draft.vehicleNumber.isEmpty
+          vehicleNumber: !_useExistingCustomer
+              ? _vehicleNumberController.text.trim()
+              : draft.vehicleNumber.isEmpty
               ? _vehicleNumberController.text.trim()
               : draft.vehicleNumber,
-          carModel: draft.carModel.isEmpty
+          carModel: !_useExistingCustomer
+              ? _carModelController.text.trim()
+              : draft.carModel.isEmpty
               ? _carModelController.text.trim()
               : draft.carModel,
         ),
       );
+      setState(() => _hasParsedDocument = true);
       _showMessage('${draft.type.label} parsed successfully.');
     } on FormatException catch (error) {
       _showMessage(error.message);
     }
+  }
+
+  CarProfile? _newCustomerDraftCar() {
+    if (_useExistingCustomer) return null;
+    final vehicleNumber = _vehicleNumberController.text.trim();
+    final carModel = _carModelController.text.trim();
+    if (vehicleNumber.isEmpty || carModel.isEmpty) return null;
+    return CarProfile(
+      id: '',
+      userId: '',
+      carNumber: vehicleNumber,
+      model: carModel,
+      fuelType: _fuelTypeController.text.trim().isEmpty
+          ? 'Petrol'
+          : _fuelTypeController.text.trim(),
+      year: int.tryParse(_yearController.text.trim()) ?? DateTime.now().year,
+      isActive: false,
+      imageUrl: '',
+    );
   }
 
   void _addBlankItem() {
@@ -753,8 +770,6 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       key: const PageStorageKey('owner-document-library'),
       padding: const EdgeInsets.all(20),
       children: [
-        _buildModeSwitch(),
-        const SizedBox(height: 16),
         Text('Document Library', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 12),
         TextField(
@@ -841,21 +856,32 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     final documents = _selectedCarId == null
         ? controller.documents
         : controller.documentsForCar(_selectedCarId!);
-    final noteHint = selectedCar == null
-        ? 'Paste the full invoice, quotation, or estimation text. If you select a car first, this note area can stay much shorter.'
-        : 'You do not need to paste the document type, vehicle number, or car model here. The selected car and document type will be used automatically.';
+    final newCustomerReady =
+        !_useExistingCustomer &&
+        _customerNameController.text.trim().isNotEmpty &&
+        _customerPhoneController.text.trim().isNotEmpty;
+    final newCarReady =
+        !_useExistingCustomer &&
+        _vehicleNumberController.text.trim().isNotEmpty &&
+        _carModelController.text.trim().isNotEmpty;
+    final hasCustomerStepValue = _useExistingCustomer
+        ? _selectedCustomerId != null
+        : newCustomerReady;
+    final hasVehicleStepValue = _useExistingCustomer
+        ? _selectedCarId != null
+        : newCarReady;
+    final canShowNotes =
+        _hasSelectedDocumentType && hasCustomerStepValue && hasVehicleStepValue;
+    final canShowEditDetails = _hasParsedDocument;
+    final notesHint = selectedCar != null || !_useExistingCustomer
+        ? 'Paste only customer notes or line items. Customer and vehicle details are already filled.'
+        : 'Paste the vehicle, customer, and line items. The selected document type will be used automatically.';
 
-    if (_showLibrary) {
-      return _buildDocumentLibrary(controller, documents);
-    }
-
-    return ListView(
+    final studio = ListView(
       key: const PageStorageKey('owner-document-tab'),
       controller: _scrollController,
       padding: const EdgeInsets.all(20),
       children: [
-        _buildModeSwitch(),
-        const SizedBox(height: 16),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -867,65 +893,35 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _StudioChoiceCard(
-                        icon: Icons.person_search_rounded,
-                        title: 'Existing customer',
-                        selected: _useExistingCustomer,
-                        onTap: () {
-                          setState(() => _useExistingCustomer = true);
-                          _hydrateFromSelectedCustomer();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StudioChoiceCard(
-                        icon: Icons.person_add_alt_1_rounded,
-                        title: 'New customer',
-                        selected: !_useExistingCustomer,
-                        onTap: () {
-                          setState(() {
-                            _useExistingCustomer = false;
-                            _selectedCustomerId = null;
-                            _selectedCarId = null;
-                            _customerNameController.clear();
-                            _customerPhoneController.clear();
-                            _vehicleNumberController.clear();
-                            _carModelController.clear();
-                          });
-                        },
-                      ),
-                    ),
-                  ],
+                Text(
+                  '1. Document type',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
                   children: DocumentType.values.map((type) {
+                    final selected =
+                        _hasSelectedDocumentType && _selectedType == type;
                     return ChoiceChip(
                       avatar: Icon(
                         _documentTypeIcon(type),
                         size: 18,
-                        color: _selectedType == type
-                            ? AppPalette.white
-                            : AppPalette.black,
+                        color: selected ? AppPalette.white : AppPalette.black,
                       ),
                       label: Text(type.label),
-                      selected: _selectedType == type,
+                      selected: selected,
                       selectedColor: AppPalette.red,
                       labelStyle: TextStyle(
-                        color: _selectedType == type
-                            ? AppPalette.white
-                            : AppPalette.black,
+                        color: selected ? AppPalette.white : AppPalette.black,
                         fontWeight: FontWeight.w700,
                       ),
                       onSelected: (_) {
                         setState(() {
                           _selectedType = type;
+                          _hasSelectedDocumentType = true;
+                          _hasParsedDocument = false;
                           _documentNumberController.text = _nextDocumentNumber(
                             type,
                           );
@@ -934,394 +930,401 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                     );
                   }).toList(),
                 ),
-                const SizedBox(height: 16),
-                if (_useExistingCustomer) ...[
+                if (_hasSelectedDocumentType) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    '2. Customer',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
-                    initialValue: _selectedCustomerId,
+                    initialValue: _useExistingCustomer
+                        ? _selectedCustomerId
+                        : _newCustomerChoiceId,
                     decoration: const InputDecoration(
                       labelText: 'Select customer',
                     ),
-                    items: controller.customers
-                        .map(
-                          (customer) => DropdownMenuItem<String>(
-                            value: customer.id,
-                            child: Text('${customer.name} - ${customer.phone}'),
-                          ),
-                        )
-                        .toList(),
+                    items: [
+                      ...controller.customers.map(
+                        (customer) => DropdownMenuItem<String>(
+                          value: customer.id,
+                          child: Text('${customer.name} - ${customer.phone}'),
+                        ),
+                      ),
+                      const DropdownMenuItem<String>(
+                        value: _newCustomerChoiceId,
+                        child: Text('New customer'),
+                      ),
+                    ],
                     onChanged: (value) {
                       setState(() {
+                        _hasParsedDocument = false;
+                        if (value == _newCustomerChoiceId) {
+                          _useExistingCustomer = false;
+                          _selectedCustomerId = null;
+                          _selectedCarId = null;
+                          _customerNameController.clear();
+                          _customerPhoneController.clear();
+                          _vehicleNumberController.clear();
+                          _carModelController.clear();
+                          _rawTextController.clear();
+                          return;
+                        }
+                        _useExistingCustomer = true;
                         _selectedCustomerId = value;
                         _selectedCarId = null;
+                        _rawTextController.clear();
                       });
                       _hydrateFromSelectedCustomer();
                     },
                   ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedCarId,
-                    decoration: const InputDecoration(labelText: 'Select car'),
-                    items: customerCars
-                        .map(
-                          (car) => DropdownMenuItem<String>(
-                            value: car.id,
-                            child: Text('${car.carNumber} - ${car.model}'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedCarId = value;
-                      });
-                      _hydrateFromSelectedCar();
-                    },
-                  ),
-                ],
-                if (selectedCar != null) ...[
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppPalette.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppPalette.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  if (!_useExistingCustomer) ...[
+                    const SizedBox(height: 12),
+                    Row(
                       children: [
-                        Text(
-                          'Auto-filled from selection',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 10),
-                        _AutoFillLine(
-                          label: 'Document',
-                          value: _selectedType.label,
-                        ),
-                        _AutoFillLine(
-                          label: 'Vehicle',
-                          value: selectedCar.carNumber,
-                        ),
-                        _AutoFillLine(label: 'Model', value: selectedCar.model),
-                        if (selectedCustomer != null)
-                          _AutoFillLine(
-                            label: 'Customer',
-                            value: selectedCustomer.name,
+                        Expanded(
+                          child: TextField(
+                            controller: _customerNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Customer name',
+                            ),
+                            onChanged: (_) =>
+                                setState(() => _hasParsedDocument = false),
                           ),
-                        if (selectedCustomer != null)
-                          _AutoFillLine(
-                            label: 'Phone',
-                            value: selectedCustomer.phone,
-                          ),
-                        const SizedBox(height: 12),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton(
-                            onPressed: () =>
-                                setState(() => _seedRawTemplate(force: true)),
-                            child: const Text('Load quick template'),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _customerPhoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: const InputDecoration(
+                              labelText: 'Customer phone',
+                              prefixText: '+91 ',
+                            ),
+                            onChanged: (_) =>
+                                setState(() => _hasParsedDocument = false),
                           ),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Paste notes',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(noteHint, style: Theme.of(context).textTheme.bodySmall),
-                if (selectedCar != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppPalette.soft,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppPalette.border),
-                    ),
-                    child: Text(
-                      'Selected car mode is active. Paste only the customer name if needed and the line items below. You can skip typing the document type, vehicle number, and model.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _rawTextController,
-                  minLines: 8,
-                  maxLines: 12,
-                  decoration: InputDecoration(
-                    hintText: selectedCar == null
-                        ? 'Invoice\nTS19F2222\nMG HECTOR 2.0D\nSAI HEMAJA AEROBRICKS PVTLTD\n\nOilfilter - 690\nEngineoil(fullysynth 5w30) - 800*5 - 4000'
-                        : 'SAI HEMAJA AEROBRICKS PVTLTD\n\nOilfilter - 690\nAirfilter - 1050\nEngineoil(fullysynth 5w30) - 800*5 - 4000',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: _parseDocument,
-                  child: Text('Parse ${_selectedType.label}'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Edit details',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _documentNumberController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Document number',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _customerNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Customer name',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _customerPhoneController,
-                        keyboardType: TextInputType.phone,
-                        readOnly:
-                            _useExistingCustomer && selectedCustomer != null,
-                        decoration: InputDecoration(
-                          labelText: 'Customer phone',
-                          prefixText: '+91 ',
-                          helperText:
-                              _useExistingCustomer && selectedCustomer != null
-                              ? 'Locked to selected customer'
-                              : null,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _fuelTypeController,
-                        readOnly: _useExistingCustomer && selectedCar != null,
-                        decoration: InputDecoration(
-                          labelText: 'Fuel type',
-                          helperText:
-                              _useExistingCustomer && selectedCar != null
-                              ? 'Taken from selected car'
-                              : null,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _vehicleNumberController,
-                        readOnly: selectedCar != null,
-                        decoration: InputDecoration(
-                          labelText: 'Vehicle number',
-                          helperText: selectedCar == null
-                              ? null
-                              : 'Locked to selected car',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _carModelController,
-                        readOnly: selectedCar != null,
-                        decoration: InputDecoration(
-                          labelText: 'Car model',
-                          helperText: selectedCar == null
-                              ? null
-                              : 'Locked to selected car',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (!_useExistingCustomer) ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _yearController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Vehicle year',
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Text(
-                      'Line items',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const Spacer(),
-                    OutlinedButton(
-                      onPressed: _addBlankItem,
-                      child: const Text('Add item'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_items.isEmpty)
+                if (_hasSelectedDocumentType && hasCustomerStepValue) ...[
+                  const SizedBox(height: 20),
                   Text(
-                    'No items yet. Parse notes or add items manually.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    '3. Car',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                ..._items.asMap().entries.map(
-                  (entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _LineItemEditor(
-                      key: ValueKey('line-item-${entry.key}'),
-                      index: entry.key,
-                      item: entry.value,
-                      onChanged: (item) => _updateItem(entry.key, item),
-                      onRemove: () => _removeItem(entry.key),
+                  const SizedBox(height: 10),
+                  if (_useExistingCustomer)
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedCarId,
+                      decoration: const InputDecoration(
+                        labelText: 'Select car',
+                      ),
+                      items: customerCars
+                          .map(
+                            (car) => DropdownMenuItem<String>(
+                              value: car.id,
+                              child: Text('${car.carNumber} - ${car.model}'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _hasParsedDocument = false;
+                          _selectedCarId = value;
+                        });
+                        _hydrateFromSelectedCar();
+                      },
+                    )
+                  else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _vehicleNumberController,
+                            decoration: const InputDecoration(
+                              labelText: 'Vehicle number',
+                            ),
+                            textCapitalization: TextCapitalization.characters,
+                            onChanged: (_) =>
+                                setState(() => _hasParsedDocument = false),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _carModelController,
+                            decoration: const InputDecoration(
+                              labelText: 'Car model',
+                            ),
+                            onChanged: (_) =>
+                                setState(() => _hasParsedDocument = false),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _fuelTypeController,
+                            decoration: const InputDecoration(
+                              labelText: 'Fuel type',
+                            ),
+                            onChanged: (_) =>
+                                setState(() => _hasParsedDocument = false),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _yearController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Vehicle year',
+                            ),
+                            onChanged: (_) =>
+                                setState(() => _hasParsedDocument = false),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (canShowNotes && !_hasParsedDocument) ...[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Paste notes',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(notesHint, style: Theme.of(context).textTheme.bodySmall),
+                  if (selectedCar != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppPalette.soft,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppPalette.border),
+                      ),
+                      child: Text(
+                        'Selected car mode is active. Paste only the customer name if needed and the line items below. You can skip typing the document type, vehicle number, and model.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _rawTextController,
+                    minLines: 8,
+                    maxLines: 12,
+                    decoration: InputDecoration(
+                      hintText: _useExistingCustomer && selectedCar == null
+                          ? 'Vehicle number\nCar model\nCustomer name\n\nOil filter - 690\nAir filter - 1050\nEngine oil 5W30 - 800*5 - 4000'
+                          : 'Oil filter - 690\nAir filter - 1050\nEngine oil 5W30 - 800*5 - 4000',
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FilledButton.icon(
-                  onPressed: _createDraftPreview,
-                  icon: const Icon(Icons.description_rounded),
-                  label: const Text('Create document'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _AutoFillLine extends StatelessWidget {
-  const _AutoFillLine({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.check_circle_rounded,
-            color: AppPalette.red,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '$label:',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StudioChoiceCard extends StatelessWidget {
-  const _StudioChoiceCard({
-    required this.icon,
-    required this.title,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: selected ? AppPalette.red : AppPalette.soft,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? AppPalette.red : AppPalette.border,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: selected ? AppPalette.white : AppPalette.black),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: selected ? AppPalette.white : AppPalette.black,
-                ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _parseDocument,
+                    child: Text('Parse ${_selectedType.label}'),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
+        ],
+        if (canShowEditDetails) ...[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Edit details',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _documentNumberController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Document number',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _customerNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Customer name',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _customerPhoneController,
+                          keyboardType: TextInputType.phone,
+                          readOnly:
+                              _useExistingCustomer && selectedCustomer != null,
+                          decoration: InputDecoration(
+                            labelText: 'Customer phone',
+                            prefixText: '+91 ',
+                            helperText:
+                                _useExistingCustomer && selectedCustomer != null
+                                ? 'Locked to selected customer'
+                                : null,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _fuelTypeController,
+                          readOnly: _useExistingCustomer && selectedCar != null,
+                          decoration: InputDecoration(
+                            labelText: 'Fuel type',
+                            helperText:
+                                _useExistingCustomer && selectedCar != null
+                                ? 'Taken from selected car'
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _vehicleNumberController,
+                          readOnly: selectedCar != null,
+                          decoration: InputDecoration(
+                            labelText: 'Vehicle number',
+                            helperText: selectedCar == null
+                                ? null
+                                : 'Locked to selected car',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _carModelController,
+                          readOnly: selectedCar != null,
+                          decoration: InputDecoration(
+                            labelText: 'Car model',
+                            helperText: selectedCar == null
+                                ? null
+                                : 'Locked to selected car',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (!_useExistingCustomer) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _yearController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Vehicle year',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Text(
+                        'Line items',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const Spacer(),
+                      OutlinedButton(
+                        onPressed: _addBlankItem,
+                        child: const Text('Add item'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_items.isEmpty)
+                    Text(
+                      'No items yet. Parse notes or add items manually.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ..._items.asMap().entries.map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _LineItemEditor(
+                        key: ValueKey('line-item-${entry.key}'),
+                        index: entry.key,
+                        item: entry.value,
+                        onChanged: (item) => _updateItem(entry.key, item),
+                        onRemove: () => _removeItem(entry.key),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _createDraftPreview,
+                    icon: const Icon(Icons.description_rounded),
+                    label: const Text('Create document'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    return AppInnerTabs(
+      currentIndex: _showLibrary ? 1 : 0,
+      onChanged: (index) => setState(() => _showLibrary = index == 1),
+      tabs: [
+        AppInnerTab(label: 'Document Studio', child: studio),
+        AppInnerTab(
+          label: 'Document Library',
+          child: _buildDocumentLibrary(controller, documents),
         ),
-      ),
+      ],
     );
   }
 }

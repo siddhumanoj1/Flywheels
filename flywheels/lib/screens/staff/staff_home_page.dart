@@ -293,6 +293,72 @@ class _StaffHomePageState extends State<_StaffHomePage> {
     messageController.dispose();
   }
 
+  Future<void> _showProgressUpdateSheet(
+    ServiceJob job,
+    StaffProfile staff,
+  ) async {
+    final controller = FlywheelsScope.read(context);
+    final messageController = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Send update',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: messageController,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Progress update',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      final detail = messageController.text.trim();
+                      controller.sendStatusUpdate(
+                        job.id,
+                        detail.isEmpty
+                            ? '${staff.name} shared a progress update.'
+                            : '${staff.name}: $detail',
+                      );
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(content: Text('Update sent to owner.')),
+                      );
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline_rounded),
+                    label: const Text('Send to owner'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    messageController.dispose();
+  }
+
   Future<void> _showAdvanceSheet(StaffProfile staff) async {
     final controller = FlywheelsScope.read(context);
     final amountController = TextEditingController();
@@ -488,85 +554,52 @@ class _StaffHomePageState extends State<_StaffHomePage> {
       );
     }
 
-    final tabs = widget.isMasterMechanic
-        ? [
-            _StaffDashboardTab(staff: staff),
-            _StaffCarsTab(
-              staff: staff,
-              isMasterMechanic: true,
-              onRequestApproval: _showWorkRequestSheet,
-              onProposeTeam: _showTeamSheet,
-              onCreateJobCard: _showJobCardSheet,
-            ),
-            _MasterDocumentTab(
-              staff: staff,
-              onCreateJobCard: _showJobCardSheet,
-              onProposeTeam: _showTeamSheet,
-            ),
-            _StaffAttendanceTab(staff: staff, onRequestLeave: _showLeaveSheet),
-            _StaffSalaryTab(staff: staff, onRequestAdvance: _showAdvanceSheet),
-          ]
-        : [
-            _StaffDashboardTab(staff: staff),
-            _StaffCarsTab(
-              staff: staff,
-              isMasterMechanic: false,
-              onRequestApproval: _showWorkRequestSheet,
-            ),
-            _StaffAttendanceTab(staff: staff, onRequestLeave: _showLeaveSheet),
-            _StaffSalaryTab(staff: staff, onRequestAdvance: _showAdvanceSheet),
-          ];
+    final tabs = [
+      _StaffDashboardTab(staff: staff),
+      _StaffChatTab(staff: staff, onSendUpdate: _showProgressUpdateSheet),
+      _StaffCarsTab(
+        staff: staff,
+        isMasterMechanic: widget.isMasterMechanic,
+        onRequestApproval: _showWorkRequestSheet,
+        onSendUpdate: _showProgressUpdateSheet,
+        onProposeTeam: widget.isMasterMechanic ? _showTeamSheet : null,
+        onCreateJobCard: widget.isMasterMechanic ? _showJobCardSheet : null,
+      ),
+      _StaffAttendanceTab(staff: staff, onRequestLeave: _showLeaveSheet),
+      _StaffSalaryTab(staff: staff, onRequestAdvance: _showAdvanceSheet),
+    ];
 
-    final items = widget.isMasterMechanic
-        ? const [
-            AppBottomNavItem(
-              label: 'Dashboard',
-              icon: Icons.dashboard_outlined,
-              activeIcon: Icons.dashboard_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Cars',
-              icon: Icons.directions_car_outlined,
-              activeIcon: Icons.directions_car_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Docs',
-              icon: Icons.assignment_outlined,
-              activeIcon: Icons.assignment_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Attendance',
-              icon: Icons.how_to_reg_outlined,
-              activeIcon: Icons.how_to_reg_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Salary',
-              icon: Icons.payments_outlined,
-              activeIcon: Icons.payments_rounded,
-            ),
-          ]
-        : const [
-            AppBottomNavItem(
-              label: 'Dashboard',
-              icon: Icons.dashboard_outlined,
-              activeIcon: Icons.dashboard_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Cars',
-              icon: Icons.directions_car_outlined,
-              activeIcon: Icons.directions_car_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Attendance',
-              icon: Icons.how_to_reg_outlined,
-              activeIcon: Icons.how_to_reg_rounded,
-            ),
-            AppBottomNavItem(
-              label: 'Salary',
-              icon: Icons.payments_outlined,
-              activeIcon: Icons.payments_rounded,
-            ),
-          ];
+    const items = [
+      AppBottomNavItem(
+        label: 'Dashboard',
+        icon: Icons.dashboard_outlined,
+        activeIcon: Icons.dashboard_rounded,
+      ),
+      AppBottomNavItem(
+        label: 'Chat',
+        icon: Icons.chat_bubble_outline_rounded,
+        activeIcon: Icons.chat_bubble_rounded,
+      ),
+      AppBottomNavItem(
+        label: 'Car',
+        icon: Icons.directions_car_outlined,
+        activeIcon: Icons.directions_car_rounded,
+      ),
+      AppBottomNavItem(
+        label: 'Attendance',
+        icon: Icons.how_to_reg_outlined,
+        activeIcon: Icons.how_to_reg_rounded,
+      ),
+      AppBottomNavItem(
+        label: 'Salary',
+        icon: Icons.payments_outlined,
+        activeIcon: Icons.payments_rounded,
+      ),
+    ];
+    final pendingApprovalCount = controller.workApprovalRequests
+        .where((request) => request.staffId == staff.id)
+        .where((request) => request.status == RequestStatus.pending)
+        .length;
 
     return Scaffold(
       appBar: AppBar(
@@ -597,6 +630,7 @@ class _StaffHomePageState extends State<_StaffHomePage> {
         items: items,
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
+        badgeCounts: [0, 0, pendingApprovalCount, 0, 0],
       ),
     );
   }
@@ -717,11 +751,141 @@ class _StaffDashboardTab extends StatelessWidget {
   }
 }
 
+class _StaffChatTab extends StatelessWidget {
+  const _StaffChatTab({required this.staff, required this.onSendUpdate});
+
+  final StaffProfile staff;
+  final void Function(ServiceJob job, StaffProfile staff) onSendUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    final jobs = controller.jobsForStaff(staff.id);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                const Icon(Icons.chat_bubble_outline_rounded),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Owner chat',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Send progress updates through the owner.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text('Car messages', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        if (jobs.isEmpty)
+          const _StaffEmptyCard(message: 'No assigned cars available.'),
+        ...jobs.map(
+          (job) => _StaffCommunicationCard(
+            job: job,
+            staff: staff,
+            onSendUpdate: onSendUpdate,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StaffCommunicationCard extends StatelessWidget {
+  const _StaffCommunicationCard({
+    required this.job,
+    required this.staff,
+    required this.onSendUpdate,
+  });
+
+  final ServiceJob job;
+  final StaffProfile staff;
+  final void Function(ServiceJob job, StaffProfile staff) onSendUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.of(context);
+    final car = controller.carForJob(job);
+    final customer = car == null ? null : controller.customerForCar(car.id);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (car != null)
+                  AppImage(
+                    path: car.imageUrl,
+                    width: 64,
+                    height: 48,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                if (car != null) const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        car?.carNumber ?? 'Assigned car',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${customer?.name ?? 'Customer'} | ${job.status.label}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => onSendUpdate(job, staff),
+                  icon: const Icon(Icons.chat_bubble_outline_rounded),
+                  label: const Text('Send update'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StaffCarsTab extends StatelessWidget {
   const _StaffCarsTab({
     required this.staff,
     required this.isMasterMechanic,
     required this.onRequestApproval,
+    required this.onSendUpdate,
     this.onProposeTeam,
     this.onCreateJobCard,
   });
@@ -729,6 +893,7 @@ class _StaffCarsTab extends StatelessWidget {
   final StaffProfile staff;
   final bool isMasterMechanic;
   final void Function(ServiceJob job, StaffProfile staff) onRequestApproval;
+  final void Function(ServiceJob job, StaffProfile staff) onSendUpdate;
   final void Function(ServiceJob job, StaffProfile staff)? onProposeTeam;
   final void Function(ServiceJob job, StaffProfile staff)? onCreateJobCard;
 
@@ -736,6 +901,17 @@ class _StaffCarsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
     final jobs = controller.jobsForStaff(staff.id);
+    final approvalMessages =
+        controller.workApprovalRequests
+            .where((request) => request.staffId == staff.id)
+            .toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    final jobCards = isMasterMechanic
+        ? jobs
+              .expand((job) => controller.documentsForCar(job.carId))
+              .where((document) => document.type == DocumentType.jobCard)
+              .toList()
+        : <ServiceDocument>[];
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -808,10 +984,7 @@ class _StaffCarsTab extends StatelessWidget {
                         label: const Text('Approval'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () => controller.sendStatusUpdate(
-                          job.id,
-                          '${staff.name} shared a progress update.',
-                        ),
+                        onPressed: () => onSendUpdate(job, staff),
                         icon: const Icon(Icons.notifications_active_outlined),
                         label: const Text('Update'),
                       ),
@@ -835,58 +1008,41 @@ class _StaffCarsTab extends StatelessWidget {
             ),
           );
         }),
-      ],
-    );
-  }
-}
-
-class _MasterDocumentTab extends StatelessWidget {
-  const _MasterDocumentTab({
-    required this.staff,
-    required this.onCreateJobCard,
-    required this.onProposeTeam,
-  });
-
-  final StaffProfile staff;
-  final void Function(ServiceJob job, StaffProfile staff) onCreateJobCard;
-  final void Function(ServiceJob job, StaffProfile staff) onProposeTeam;
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = FlywheelsScope.of(context);
-    final jobs = controller.jobsForStaff(staff.id);
-    final documents = jobs
-        .expand((job) => controller.documentsForCar(job.carId))
-        .where((document) => document.type == DocumentType.jobCard)
-        .toList();
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text('Job card queue', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        if (jobs.isEmpty)
-          const _StaffEmptyCard(message: 'No assigned cars for job cards.'),
-        ...jobs.map(
-          (job) => _StaffJobActionCard(
-            job: job,
-            onCreateJobCard: () => onCreateJobCard(job, staff),
-            onProposeTeam: () => onProposeTeam(job, staff),
-          ),
-        ),
         const SizedBox(height: 16),
-        Text('Sent job cards', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        if (documents.isEmpty)
-          const _StaffEmptyCard(message: 'No job cards sent yet.'),
-        ...documents.map(
-          (document) => _StaffRequestTile(
-            title: document.title,
-            subtitle:
-                '${document.approvalState.name} | ${formatCurrency(document.total)}',
-            icon: Icons.assignment_outlined,
-          ),
+        Text(
+          'Approval messages',
+          style: Theme.of(context).textTheme.titleMedium,
         ),
+        const SizedBox(height: 8),
+        if (approvalMessages.isEmpty)
+          const _StaffEmptyCard(message: 'No approval messages yet.'),
+        ...approvalMessages.map((request) {
+          final job = jobs
+              .where((item) => item.id == request.jobId)
+              .firstOrNull;
+          final car = job == null ? null : controller.carForJob(job);
+          return _StaffRequestTile(
+            title: request.title,
+            subtitle:
+                '${request.status.label} | ${car?.carNumber ?? 'Assigned car'} | ${request.message}',
+            icon: _requestStatusIcon(request.status),
+          );
+        }),
+        if (isMasterMechanic) ...[
+          const SizedBox(height: 16),
+          Text('Job cards', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          if (jobCards.isEmpty)
+            const _StaffEmptyCard(message: 'No job cards sent yet.'),
+          ...jobCards.map(
+            (document) => _StaffRequestTile(
+              title: document.title,
+              subtitle:
+                  '${_approvalStateLabel(document.approvalState)} | ${formatCurrency(document.total)}',
+              icon: Icons.assignment_outlined,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1058,69 +1214,6 @@ class _StaffSalaryTab extends StatelessWidget {
   }
 }
 
-class _StaffJobActionCard extends StatelessWidget {
-  const _StaffJobActionCard({
-    required this.job,
-    required this.onCreateJobCard,
-    required this.onProposeTeam,
-  });
-
-  final ServiceJob job;
-  final VoidCallback onCreateJobCard;
-  final VoidCallback onProposeTeam;
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = FlywheelsScope.of(context);
-    final car = controller.carForJob(job);
-    final proposals = controller.proposalsForJob(job.id);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              car == null ? 'Assigned job' : '${car.carNumber} | ${car.model}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              job.status.label,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: onCreateJobCard,
-                  icon: const Icon(Icons.assignment_rounded),
-                  label: const Text('Job card'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: onProposeTeam,
-                  icon: const Icon(Icons.group_add_outlined),
-                  label: const Text('Mechanics'),
-                ),
-              ],
-            ),
-            if (proposals.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(
-                'Latest team: ${proposals.first.status.label}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _StaffJobTile extends StatelessWidget {
   const _StaffJobTile({required this.job});
 
@@ -1230,6 +1323,28 @@ class _StaffEmptyCard extends StatelessWidget {
         child: Text(message, style: Theme.of(context).textTheme.bodySmall),
       ),
     );
+  }
+}
+
+String _approvalStateLabel(ApprovalState state) {
+  switch (state) {
+    case ApprovalState.pending:
+      return 'Pending';
+    case ApprovalState.approved:
+      return 'Approved';
+    case ApprovalState.rejected:
+      return 'Rejected';
+  }
+}
+
+IconData _requestStatusIcon(RequestStatus status) {
+  switch (status) {
+    case RequestStatus.pending:
+      return Icons.hourglass_top_outlined;
+    case RequestStatus.approved:
+      return Icons.check_circle_outline_rounded;
+    case RequestStatus.rejected:
+      return Icons.cancel_outlined;
   }
 }
 

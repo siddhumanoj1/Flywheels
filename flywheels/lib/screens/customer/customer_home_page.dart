@@ -4,13 +4,14 @@ import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/screens/shared/document_pdf_viewer_page.dart';
 import 'package:flywheels/screens/shared/wheels_marketplace_tab.dart';
-import 'package:flywheels/services/car_media_service.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
+import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
+import 'package:flywheels/widgets/customer_car_details_fields.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -26,12 +27,20 @@ class CustomerHomePage extends StatefulWidget {
 class _CustomerHomePageState extends State<CustomerHomePage> {
   final _picker = ImagePicker();
   final _chatMessageController = TextEditingController();
+  late final PageController _pageController;
   int _currentIndex = 0;
   ChatChannel _customerChatChannel = ChatChannel.general;
   bool _pickingProfilePhoto = false;
 
   @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
   void dispose() {
+    _pageController.dispose();
     _chatMessageController.dispose();
     super.dispose();
   }
@@ -116,165 +125,61 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     final modelController = TextEditingController();
     final fuelController = TextEditingController();
     final yearController = TextEditingController();
-    const companies = {
-      'MG': ['Hector', 'Astor', 'Gloster', 'ZS EV'],
-      'Hyundai': ['Creta', 'Venue', 'Verna', 'i20'],
-      'Maruti Suzuki': ['Swift', 'Baleno', 'Brezza', 'Ertiga'],
-      'Tata': ['Nexon', 'Harrier', 'Punch', 'Safari'],
-      'Mahindra': ['XUV700', 'Scorpio N', 'Thar', 'XUV300'],
-      'Toyota': ['Innova Crysta', 'Fortuner', 'Glanza', 'Urban Cruiser'],
-      'Kia': ['Seltos', 'Sonet', 'Carens', 'EV6'],
-      'Honda': ['City', 'Amaze', 'Elevate', 'Jazz'],
-    };
-    var selectedCompany = companies.keys.first;
-    var selectedModel = companies[selectedCompany]!.first;
     String? selectedImagePath;
-    yearController.text = DateTime.now().year.toString();
-    modelController.text = '$selectedCompany $selectedModel';
 
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final year =
-                int.tryParse(yearController.text.trim()) ?? DateTime.now().year;
-            final previewPath =
-                selectedImagePath ??
-                CarMediaService.imageForModel(modelController.text, year: year);
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                20,
-                20,
-                MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Add a car',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 16),
-                    AppImage(
-                      path: previewPath,
-                      width: double.infinity,
-                      height: 150,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: carNumberController,
-                      decoration: const InputDecoration(
-                        labelText: 'Car number',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedCompany,
-                      decoration: const InputDecoration(labelText: 'Company'),
-                      items: companies.keys
-                          .map(
-                            (company) => DropdownMenuItem(
-                              value: company,
-                              child: Text(company),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setSheetState(() {
-                          selectedCompany = value;
-                          selectedModel = companies[value]!.first;
-                          modelController.text =
-                              '$selectedCompany $selectedModel';
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedModel,
-                      decoration: const InputDecoration(labelText: 'Model'),
-                      items: companies[selectedCompany]!
-                          .map(
-                            (model) => DropdownMenuItem(
-                              value: model,
-                              child: Text(model),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setSheetState(() {
-                          selectedModel = value;
-                          modelController.text =
-                              '$selectedCompany $selectedModel';
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: modelController,
-                      decoration: const InputDecoration(
-                        labelText: 'Full model number / variant',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: fuelController,
-                      decoration: const InputDecoration(labelText: 'Fuel type'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: yearController,
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => setSheetState(() {}),
-                      decoration: const InputDecoration(labelText: 'Year'),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        final image = await _picker.pickImage(
-                          source: ImageSource.gallery,
-                          imageQuality: 85,
-                        );
-                        if (image == null) return;
-                        setSheetState(() => selectedImagePath = image.path);
-                      },
-                      icon: const Icon(Icons.photo_outlined),
-                      label: Text(
-                        selectedImagePath == null
-                            ? 'Use my car picture'
-                            : 'Change selected picture',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () {
-                          controller.addCar(
-                            carNumber: carNumberController.text.trim(),
-                            model: modelController.text.trim(),
-                            fuelType: fuelController.text.trim().isEmpty
-                                ? 'Petrol'
-                                : fuelController.text.trim(),
-                            year: year,
-                            imagePath: selectedImagePath,
-                          );
-                          Navigator.of(context).pop();
-                        },
-                        child: const Text('Save car'),
-                      ),
-                    ),
-                  ],
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Add a car',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-              ),
-            );
-          },
+                const SizedBox(height: 16),
+                CustomerCarDetailsFields(
+                  picker: _picker,
+                  carNumberController: carNumberController,
+                  modelController: modelController,
+                  fuelController: fuelController,
+                  yearController: yearController,
+                  onImagePathChanged: (path) => selectedImagePath = path,
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      final year =
+                          int.tryParse(yearController.text.trim()) ??
+                          DateTime.now().year;
+                      controller.addCar(
+                        carNumber: carNumberController.text.trim(),
+                        model: modelController.text.trim(),
+                        fuelType: fuelController.text.trim().isEmpty
+                            ? 'Petrol'
+                            : fuelController.text.trim(),
+                        year: year,
+                        imagePath: selectedImagePath,
+                      );
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Save car'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     ).whenComplete(() {
@@ -808,6 +713,22 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   }
 
   void _selectTab(int index) {
+    if (index < 0 || index > 4) return;
+    final controller = FlywheelsScope.read(context);
+    if (index == 3) {
+      controller.markConversationReadByCustomer(controller.session!.user.id);
+    }
+    setState(() => _currentIndex = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  void _handleParentPageChanged(int index) {
     final controller = FlywheelsScope.read(context);
     if (index == 3) {
       controller.markConversationReadByCustomer(controller.session!.user.id);
@@ -1089,8 +1010,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
               onAddCar: () => _showAddCarSheet(context),
             ),
           Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: _handleParentPageChanged,
               children: [
                 _CustomerHomeTab(
                   activeCar: activeCar,
@@ -2250,7 +2172,6 @@ class _CustomerDocsTab extends StatefulWidget {
 }
 
 class _CustomerDocsTabState extends State<_CustomerDocsTab> {
-  bool _showLibrary = false;
   String _query = '';
   DocumentType? _filterType;
   bool _newestFirst = true;
@@ -2289,100 +2210,102 @@ class _CustomerDocsTabState extends State<_CustomerDocsTab> {
               : left.updatedAt.compareTo(right.updatedAt),
         );
 
+    return AppInnerTabs(
+      title: '${activeCar.carNumber} Docs',
+      tabs: [
+        AppInnerTab(
+          label: 'Document Studio',
+          child: _buildStudioView(activeCar, assetDocuments),
+        ),
+        AppInnerTab(
+          label: 'Document Library',
+          child: _buildLibraryView(libraryDocuments),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStudioView(
+    CarProfile activeCar,
+    List<CustomerAssetDocument> assetDocuments,
+  ) {
     return ListView(
-      key: const PageStorageKey('customer-docs'),
+      key: const PageStorageKey('customer-document-studio'),
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          '${activeCar.carNumber} Documents',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 12),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(
-              value: false,
-              icon: Icon(Icons.edit_document),
-              label: Text('Document Studio'),
-            ),
-            ButtonSegment(
-              value: true,
-              icon: Icon(Icons.library_books_outlined),
-              label: Text('Document Library'),
-            ),
-          ],
-          selected: {_showLibrary},
-          onSelectionChanged: (selection) =>
-              setState(() => _showLibrary = selection.first),
+        _VehicleDocumentVaultCard(
+          car: activeCar,
+          documents: assetDocuments,
+          onUpload: () => widget.onUploadVehicleDocument(activeCar),
         ),
         const SizedBox(height: 16),
-        if (!_showLibrary) ...[
-          _VehicleDocumentVaultCard(
-            car: activeCar,
-            documents: assetDocuments,
-            onUpload: () => widget.onUploadVehicleDocument(activeCar),
+        _EmptyStateCard(
+          title: 'Create and upload',
+          subtitle:
+              'Use the studio for RC, insurance, PUC, and driving-license records. Service bills and PDFs live in Document Library.',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLibraryView(List<ServiceDocument> libraryDocuments) {
+    return ListView(
+      key: const PageStorageKey('customer-document-library'),
+      padding: const EdgeInsets.all(16),
+      children: [
+        TextField(
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search_rounded),
+            hintText: 'Search bills, estimates, invoices',
           ),
-          const SizedBox(height: 16),
-          _EmptyStateCard(
-            title: 'Create and upload',
-            subtitle:
-                'Use the studio for RC, insurance, PUC, and driving-license records. Service bills and PDFs live in Document Library.',
-          ),
-        ] else ...[
-          TextField(
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
-              hintText: 'Search bills, estimates, invoices',
-            ),
-            onChanged: (value) => setState(() => _query = value),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<DocumentType?>(
-                  initialValue: _filterType,
-                  decoration: const InputDecoration(labelText: 'Filter'),
-                  items: [
-                    const DropdownMenuItem<DocumentType?>(
-                      value: null,
-                      child: Text('All documents'),
+          onChanged: (value) => setState(() => _query = value),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<DocumentType?>(
+                initialValue: _filterType,
+                decoration: const InputDecoration(labelText: 'Filter'),
+                items: [
+                  const DropdownMenuItem<DocumentType?>(
+                    value: null,
+                    child: Text('All documents'),
+                  ),
+                  ...DocumentType.values.map(
+                    (type) => DropdownMenuItem<DocumentType?>(
+                      value: type,
+                      child: Text(type.label),
                     ),
-                    ...DocumentType.values.map(
-                      (type) => DropdownMenuItem<DocumentType?>(
-                        value: type,
-                        child: Text(type.label),
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) => setState(() => _filterType = value),
-                ),
+                  ),
+                ],
+                onChanged: (value) => setState(() => _filterType = value),
               ),
-              const SizedBox(width: 10),
-              IconButton.outlined(
-                tooltip: _newestFirst ? 'Newest first' : 'Oldest first',
-                onPressed: () => setState(() => _newestFirst = !_newestFirst),
-                icon: Icon(
-                  _newestFirst ? Icons.south_rounded : Icons.north_rounded,
-                ),
+            ),
+            const SizedBox(width: 10),
+            IconButton.outlined(
+              tooltip: _newestFirst ? 'Newest first' : 'Oldest first',
+              onPressed: () => setState(() => _newestFirst = !_newestFirst),
+              icon: Icon(
+                _newestFirst ? Icons.south_rounded : Icons.north_rounded,
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (libraryDocuments.isEmpty)
-            const _EmptyStateCard(
-              title: 'No records found',
-              subtitle: 'Try another search, filter, or car.',
             ),
-          ...libraryDocuments.map(
-            (document) => _CustomerDocumentLibraryTile(
-              document: document,
-              onOpen: () => widget.onOpenDocument(document),
-              onDownload: () => widget.onDownloadDocument(document),
-              onShare: () => widget.onShareDocument(document),
-            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (libraryDocuments.isEmpty)
+          const _EmptyStateCard(
+            title: 'No records found',
+            subtitle: 'Try another search, filter, or car.',
           ),
-        ],
+        ...libraryDocuments.map(
+          (document) => _CustomerDocumentLibraryTile(
+            document: document,
+            onOpen: () => widget.onOpenDocument(document),
+            onDownload: () => widget.onDownloadDocument(document),
+            onShare: () => widget.onShareDocument(document),
+          ),
+        ),
       ],
     );
   }
@@ -2498,6 +2421,47 @@ class _CustomerChatTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final index = ChatChannel.values.indexOf(channel);
+    return AppInnerTabs(
+      currentIndex: index,
+      onChanged: (value) => onChannelChanged(ChatChannel.values[value]),
+      tabs: ChatChannel.values
+          .map(
+            (item) => AppInnerTab(
+              label: item.label,
+              child: _CustomerChatChannelView(
+                key: PageStorageKey('customer-chat-${item.name}'),
+                chatMessageController: chatMessageController,
+                channel: item,
+                onSend: onSend,
+                onSendPhoto: onSendPhoto,
+                onSendDocument: onSendDocument,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _CustomerChatChannelView extends StatelessWidget {
+  const _CustomerChatChannelView({
+    super.key,
+    required this.chatMessageController,
+    required this.channel,
+    required this.onSend,
+    required this.onSendPhoto,
+    required this.onSendDocument,
+  });
+
+  final TextEditingController chatMessageController;
+  final ChatChannel channel;
+  final VoidCallback onSend;
+  final VoidCallback onSendPhoto;
+  final VoidCallback onSendDocument;
+
+  @override
+  Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
     final userId = controller.session!.user.id;
     final user = controller.session!.user;
@@ -2506,22 +2470,6 @@ class _CustomerChatTab extends StatelessWidget {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-          child: SegmentedButton<ChatChannel>(
-            segments: ChatChannel.values
-                .map(
-                  (item) => ButtonSegment<ChatChannel>(
-                    value: item,
-                    label: Text(item.label),
-                  ),
-                )
-                .toList(),
-            selected: {channel},
-            onSelectionChanged: (selection) =>
-                onChannelChanged(selection.first),
-          ),
-        ),
         Expanded(
           child: messages.isEmpty
               ? Center(

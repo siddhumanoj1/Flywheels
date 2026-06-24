@@ -219,7 +219,7 @@ extension DocumentTypeX on DocumentType {
       case DocumentType.quotation:
         return 'Quotation';
       case DocumentType.estimation:
-        return 'Estimation';
+        return 'Receipt';
       case DocumentType.invoice:
         return 'Invoice';
       case DocumentType.jobCard:
@@ -232,7 +232,7 @@ extension DocumentTypeX on DocumentType {
       case DocumentType.quotation:
         return 'QTN';
       case DocumentType.estimation:
-        return 'EST';
+        return 'REC';
       case DocumentType.invoice:
         return 'INV';
       case DocumentType.jobCard:
@@ -269,6 +269,8 @@ class GarageUser {
     required this.phone,
     required this.role,
     this.profileImagePath,
+    this.email,
+    this.dataSharingConsent = false,
   });
 
   final String id;
@@ -276,12 +278,16 @@ class GarageUser {
   final String phone;
   final UserRole role;
   final String? profileImagePath;
+  final String? email;
+  final bool dataSharingConsent;
 
   GarageUser copyWith({
     String? name,
     String? phone,
     UserRole? role,
     String? profileImagePath,
+    String? email,
+    bool? dataSharingConsent,
   }) {
     return GarageUser(
       id: id,
@@ -289,6 +295,8 @@ class GarageUser {
       phone: phone ?? this.phone,
       role: role ?? this.role,
       profileImagePath: profileImagePath ?? this.profileImagePath,
+      email: email ?? this.email,
+      dataSharingConsent: dataSharingConsent ?? this.dataSharingConsent,
     );
   }
 }

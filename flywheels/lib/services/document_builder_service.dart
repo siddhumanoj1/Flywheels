@@ -21,6 +21,7 @@ abstract final class DocumentBuilderService {
     String rawText, {
     DocumentType? fallbackType,
     CarProfile? selectedCar,
+    bool attachSelectedCar = true,
   }) {
     final lines = rawText
         .replaceAll('\r', '')
@@ -56,6 +57,7 @@ abstract final class DocumentBuilderService {
       customerName = lines[3];
       itemLines = lines.skip(4).toList();
     } else if (selectedCar != null &&
+        attachSelectedCar &&
         lines.length >= 3 &&
         !_looksLikeItem(lines[0]) &&
         !_looksLikeItem(lines[1]) &&
@@ -100,7 +102,7 @@ abstract final class DocumentBuilderService {
       vehicleNumber: vehicleNumber,
       carModel: carModel,
       items: itemLines.map(_parseLineItem).toList(),
-      selectedCarId: selectedCar?.id,
+      selectedCarId: attachSelectedCar ? selectedCar?.id : null,
       rawText: rawText,
     );
   }
@@ -196,7 +198,9 @@ abstract final class DocumentBuilderService {
     if (normalized == 'quotation' || normalized == 'quote') {
       return DocumentType.quotation;
     }
-    if (normalized == 'estimation' || normalized == 'estimate') {
+    if (normalized == 'receipt' ||
+        normalized == 'estimation' ||
+        normalized == 'estimate') {
       return DocumentType.estimation;
     }
     if (normalized == 'job card' || normalized == 'jobcard') {
@@ -204,7 +208,7 @@ abstract final class DocumentBuilderService {
     }
     if (fallbackType != null) return fallbackType;
     throw const FormatException(
-      'Start the text with Invoice, Quotation, Estimation, or Job Card.',
+      'Start the text with Invoice, Quotation, Receipt, or Job Card.',
     );
   }
 
@@ -213,6 +217,7 @@ abstract final class DocumentBuilderService {
     return normalized == 'invoice' ||
         normalized == 'quotation' ||
         normalized == 'quote' ||
+        normalized == 'receipt' ||
         normalized == 'estimation' ||
         normalized == 'estimate' ||
         normalized == 'job card' ||

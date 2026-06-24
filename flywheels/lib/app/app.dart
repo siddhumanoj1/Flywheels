@@ -59,7 +59,26 @@ class _FlywheelsHome extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
+          duration: const Duration(milliseconds: 560),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            final curvedAnimation = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            );
+            return FadeTransition(
+              opacity: curvedAnimation,
+              child: ScaleTransition(
+                scale: Tween<double>(
+                  begin: 0.985,
+                  end: 1,
+                ).animate(curvedAnimation),
+                child: child,
+              ),
+            );
+          },
           child: controller.isBootstrapping
               ? const SplashPage()
               : controller.session == null

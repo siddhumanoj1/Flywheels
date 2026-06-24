@@ -4,6 +4,7 @@ import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/car_media_service.dart';
 import 'package:flywheels/widgets/app_image.dart';
+import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -1177,101 +1178,75 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
     final active = controller.activeSaleListings;
     final sold = controller.soldSaleListings;
 
-    return ListView(
-      key: const PageStorageKey('owner-wheels'),
-      padding: const EdgeInsets.all(16),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppPalette.black,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.motion_photos_auto_rounded,
-                color: AppPalette.red,
+    return AppInnerTabs(
+      title: 'Wheels marketplace',
+      subtitle:
+          '${pending.length} pending, ${active.length} live, ${sold.length} sold',
+      trailing: IconButton.filled(
+        tooltip: 'Post or approve',
+        style: IconButton.styleFrom(
+          backgroundColor: AppPalette.red,
+          foregroundColor: AppPalette.white,
+        ),
+        onPressed: () => _showOwnerWheelsActions(context),
+        icon: const Icon(Icons.add_rounded),
+      ),
+      tabs: [
+        AppInnerTab(
+          label: 'Pending Approval',
+          child: _OwnerWheelsSection(
+            key: const PageStorageKey('owner-wheels-pending'),
+            title: 'Pending approval',
+            emptyText: 'No customer submissions waiting right now.',
+            listings: pending,
+            actionsBuilder: (listing) => [
+              OutlinedButton.icon(
+                onPressed: () => controller.rejectSaleListing(listing.id),
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('Reject'),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Wheels marketplace',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.titleLarge?.copyWith(color: AppPalette.white),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${pending.length} pending, ${active.length} live, ${sold.length} sold',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppPalette.white.withValues(alpha: 0.72),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton.filled(
-                tooltip: 'Post or approve',
-                style: IconButton.styleFrom(
-                  backgroundColor: AppPalette.red,
-                  foregroundColor: AppPalette.white,
-                ),
-                onPressed: () => _showOwnerWheelsActions(context),
-                icon: const Icon(Icons.add_rounded),
+              FilledButton.icon(
+                onPressed: () => controller.approveSaleListing(listing.id),
+                icon: const Icon(Icons.check_rounded),
+                label: const Text('Approve'),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        _OwnerWheelsSection(
-          title: 'Pending approval',
-          emptyText: 'No customer submissions waiting right now.',
-          listings: pending,
-          actionsBuilder: (listing) => [
-            OutlinedButton.icon(
-              onPressed: () => controller.rejectSaleListing(listing.id),
-              icon: const Icon(Icons.close_rounded),
-              label: const Text('Reject'),
-            ),
-            FilledButton.icon(
-              onPressed: () => controller.approveSaleListing(listing.id),
-              icon: const Icon(Icons.check_rounded),
-              label: const Text('Approve'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _OwnerWheelsSection(
-          title: 'Live cars for sale',
-          emptyText: 'No live sale cars yet.',
-          listings: active,
-          actionsBuilder: (listing) => [
-            OutlinedButton.icon(
-              onPressed: () => showWheelsListingSheet(
-                context,
-                picker: picker ?? ImagePicker(),
-                editingListing: listing,
+        AppInnerTab(
+          label: 'Live Cars',
+          child: _OwnerWheelsSection(
+            key: const PageStorageKey('owner-wheels-live'),
+            title: 'Live cars',
+            emptyText: 'No live sale cars yet.',
+            listings: active,
+            actionsBuilder: (listing) => [
+              OutlinedButton.icon(
+                onPressed: () => showWheelsListingSheet(
+                  context,
+                  picker: picker ?? ImagePicker(),
+                  editingListing: listing,
+                ),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit'),
               ),
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Edit'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => controller.markSaleListingSold(listing.id),
-              icon: const Icon(Icons.sell_rounded),
-              label: const Text('Mark sold'),
-            ),
-          ],
+              OutlinedButton.icon(
+                onPressed: () => controller.markSaleListingSold(listing.id),
+                icon: const Icon(Icons.sell_rounded),
+                label: const Text('Mark sold'),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 14),
-        _OwnerWheelsSection(
-          title: 'Sold cars',
-          emptyText: 'Sold cars will appear here.',
-          listings: sold,
-          actionsBuilder: (_) => const [],
+        AppInnerTab(
+          label: 'Sold Cars',
+          child: _OwnerWheelsSection(
+            key: const PageStorageKey('owner-wheels-sold'),
+            title: 'Sold cars',
+            emptyText: 'Sold cars will appear here.',
+            listings: sold,
+            actionsBuilder: (_) => const [],
+          ),
         ),
       ],
     );
@@ -1374,6 +1349,7 @@ class OwnerWheelsMarketplaceTab extends StatelessWidget {
 
 class _OwnerWheelsSection extends StatelessWidget {
   const _OwnerWheelsSection({
+    super.key,
     required this.title,
     required this.emptyText,
     required this.listings,
@@ -1387,44 +1363,39 @@ class _OwnerWheelsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Text(
-                  listings.length.toString(),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppPalette.red,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
-            const SizedBox(height: 10),
-            if (listings.isEmpty)
-              Text(emptyText, style: Theme.of(context).textTheme.bodySmall),
-            ...listings.map(
-              (listing) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _OwnerSaleListingCard(
-                  listing: listing,
-                  actions: actionsBuilder(listing),
-                ),
+            Text(
+              listings.length.toString(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: AppPalette.red,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 10),
+        if (listings.isEmpty)
+          Text(emptyText, style: Theme.of(context).textTheme.bodySmall),
+        ...listings.map(
+          (listing) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _OwnerSaleListingCard(
+              listing: listing,
+              actions: actionsBuilder(listing),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

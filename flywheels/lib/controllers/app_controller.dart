@@ -290,15 +290,18 @@ class AppController extends ChangeNotifier {
     notifyListeners();
 
     AppSession? resolvedSession;
+    AppSession? remoteSession;
     try {
-      final remoteSession = await _apiClient.verifyOtp(requestedPhone!, code);
-      resolvedSession =
-          remoteSession ?? DemoSeed.sessionForPhone(requestedPhone!, code);
+      remoteSession = await _apiClient.verifyOtp(requestedPhone!, code);
     } catch (_) {
-      resolvedSession = DemoSeed.sessionForPhone(requestedPhone!, code);
     } finally {
       isVerifyingOtp = false;
     }
+    resolvedSession = _sessionForRequestedPhone(
+      requestedPhone!,
+      code,
+      remoteSession: remoteSession,
+    );
 
     if (flowRevision != _authFlowRevision) {
       notifyListeners();
@@ -323,6 +326,25 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     unawaited(_finishLogin(resolvedSession, flowRevision));
     return true;
+  }
+
+  AppSession? _sessionForRequestedPhone(
+    String phone,
+    String code, {
+    AppSession? remoteSession,
+  }) {
+    final expectedOtp = generatedOtp ?? '12345';
+    if (code == expectedOtp) {
+      final localUser = userByPhone(phone);
+      if (localUser != null) {
+        return AppSession(
+          user: localUser,
+          token: 'demo-${localUser.role.name}-token',
+        );
+      }
+    }
+
+    return remoteSession ?? DemoSeed.sessionForPhone(phone, code);
   }
 
   Future<void> _finishLogin(
@@ -391,22 +413,82 @@ class AppController extends ChangeNotifier {
     final userId = session?.user.id;
     if (userId == null) return;
 
-    _cars.insert(
-      0,
-      CarProfile(
-        id: 'car-${DateTime.now().millisecondsSinceEpoch}',
-        userId: userId,
+    _insertCarForUser(
+      userId: userId,
+      carNumber: carNumber,
+      model: model,
+      fuelType: fuelType,
+      year: year,
+      imagePath: imagePath,
+      isActive: _cars.where((car) => car.userId == userId).isEmpty,
+    );
+    notifyListeners();
+  }
+
+  Future<GarageUser?> createCustomerAccount({
+    required String name,
+    required String phone,
+    String? email,
+    required bool dataSharingConsent,
+    String? carNumber,
+    String? model,
+    String? fuelType,
+    int? year,
+    String? imagePath,
+  }) async {
+    final normalizedPhone = _normalizeIndianPhoneForStorage(phone);
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty ||
+        normalizedPhone.length != 10 ||
+        !dataSharingConsent ||
+        userByPhone(normalizedPhone) != null) {
+      return null;
+    }
+
+    try {
+      await _apiClient.createCustomerAccount(
+        name: normalizedName,
+        phone: normalizedPhone,
+        email: email,
+        dataSharingConsent: dataSharingConsent,
         carNumber: carNumber,
         model: model,
         fuelType: fuelType,
         year: year,
-        isActive: _cars.where((car) => car.userId == userId).isEmpty,
-        imageUrl: imagePath == null || imagePath.trim().isEmpty
-            ? CarMediaService.imageForModel(model, year: year)
-            : imagePath.trim(),
-      ),
+      );
+    } on CustomerAccountAlreadyExistsException {
+      return null;
+    } catch (_) {
+      // Keep the demo app usable when the backend is offline.
+    }
+
+    final now = DateTime.now();
+    final user = GarageUser(
+      id: 'customer-${now.microsecondsSinceEpoch}',
+      name: normalizedName,
+      phone: normalizedPhone,
+      role: UserRole.customer,
+      email: email == null || email.trim().isEmpty ? null : email.trim(),
+      dataSharingConsent: dataSharingConsent,
     );
+    _users.insert(0, user);
+
+    final normalizedCarNumber = carNumber?.trim().toUpperCase() ?? '';
+    final normalizedModel = model?.trim() ?? '';
+    if (normalizedCarNumber.isNotEmpty && normalizedModel.isNotEmpty) {
+      _insertCarForUser(
+        userId: user.id,
+        carNumber: normalizedCarNumber,
+        model: normalizedModel,
+        fuelType: fuelType ?? '',
+        year: year ?? now.year,
+        imagePath: imagePath,
+        isActive: true,
+      );
+    }
+
     notifyListeners();
+    return user;
   }
 
   void addOwnerCarForCustomer({
@@ -422,22 +504,44 @@ class AppController extends ChangeNotifier {
     final normalizedNumber = carNumber.trim();
     if (normalizedNumber.isEmpty || model.trim().isEmpty) return;
 
+    _insertCarForUser(
+      userId: customerUserId,
+      carNumber: normalizedNumber,
+      model: model,
+      fuelType: fuelType,
+      year: year,
+      imagePath: imagePath,
+      isActive: false,
+    );
+    notifyListeners();
+  }
+
+  void _insertCarForUser({
+    required String userId,
+    required String carNumber,
+    required String model,
+    required String fuelType,
+    required int year,
+    required bool isActive,
+    String? imagePath,
+  }) {
+    final safeYear = _normalizeCarYear(year);
+    final normalizedModel = model.trim();
     _cars.insert(
       0,
       CarProfile(
-        id: 'car-${DateTime.now().millisecondsSinceEpoch}',
-        userId: customerUserId,
-        carNumber: normalizedNumber,
-        model: model.trim(),
+        id: 'car-${DateTime.now().microsecondsSinceEpoch}',
+        userId: userId,
+        carNumber: carNumber.trim().toUpperCase(),
+        model: normalizedModel,
         fuelType: fuelType.trim().isEmpty ? 'Petrol' : fuelType.trim(),
-        year: year,
-        isActive: false,
+        year: safeYear,
+        isActive: isActive,
         imageUrl: imagePath == null || imagePath.trim().isEmpty
-            ? CarMediaService.imageForModel(model, year: year)
+            ? CarMediaService.imageForModel(normalizedModel, year: safeYear)
             : imagePath.trim(),
       ),
     );
-    notifyListeners();
   }
 
   void addSaleListing({
@@ -813,6 +917,16 @@ class AppController extends ChangeNotifier {
   List<CarProfile> carsForCustomer(String customerUserId) {
     return _cars.where((car) => car.userId == customerUserId).toList()
       ..sort((left, right) => left.carNumber.compareTo(right.carNumber));
+  }
+
+  GarageUser? userByPhone(String phone) {
+    final normalized = _normalizeIndianPhoneForStorage(phone);
+    if (normalized.isEmpty) return null;
+    return _users
+        .where(
+          (user) => _normalizeIndianPhoneForStorage(user.phone) == normalized,
+        )
+        .firstOrNull;
   }
 
   GarageUser? customerByPhone(String phone) {
@@ -1893,6 +2007,17 @@ class AppController extends ChangeNotifier {
       phone: _normalizeIndianPhoneForStorage(draft.customerPhone),
       role: UserRole.customer,
     );
+    unawaited(
+      _apiClient
+          .createCustomerAccount(
+            name: user.name,
+            phone: user.phone,
+            dataSharingConsent: true,
+            carNumber: draft.vehicleNumber.trim(),
+            model: draft.carModel.trim(),
+          )
+          .catchError((_) {}),
+    );
     _users.insert(0, user);
     return user;
   }
@@ -2240,6 +2365,14 @@ class AppController extends ChangeNotifier {
       digits = digits.substring(1);
     }
     return digits;
+  }
+
+  int _normalizeCarYear(int year) {
+    final currentYear = DateTime.now().year;
+    if (year < 1980 || year > currentYear + 1) {
+      return currentYear;
+    }
+    return year;
   }
 
   int _compareJobsByRecency(ServiceJob left, ServiceJob right) {
