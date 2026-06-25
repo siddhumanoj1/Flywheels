@@ -7,7 +7,7 @@ class BrandLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displaySize = size * 1.2;
+    final displaySize = size * 1.32;
     return ClipRRect(
       borderRadius: BorderRadius.circular(displaySize * 0.24),
       child: Image.asset(

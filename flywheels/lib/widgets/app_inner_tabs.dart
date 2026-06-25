@@ -1,6 +1,8 @@
 import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 
+const _activeBorderWidth = 3.0;
+
 class AppInnerTab {
   const AppInnerTab({required this.label, required this.child});
 
@@ -162,7 +164,6 @@ class _AppInnerTabsState extends State<AppInnerTabs> {
               decoration: BoxDecoration(
                 color: AppPalette.white,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppPalette.red),
                 boxShadow: [
                   BoxShadow(
                     color: AppPalette.black.withValues(alpha: 0.04),
@@ -170,6 +171,13 @@ class _AppInnerTabsState extends State<AppInnerTabs> {
                     blurRadius: 22,
                   ),
                 ],
+              ),
+              foregroundDecoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppPalette.red,
+                  width: _activeBorderWidth,
+                ),
               ),
               child: PageView(
                 controller: _pageController,
@@ -223,6 +231,7 @@ class _InnerTabButton extends StatelessWidget {
                   ),
                   border: Border.all(
                     color: selected ? AppPalette.red : AppPalette.border,
+                    width: selected ? _activeBorderWidth : 1,
                   ),
                   boxShadow: selected
                       ? [
@@ -250,7 +259,7 @@ class _InnerTabButton extends StatelessWidget {
                   left: 1,
                   right: 1,
                   bottom: 0,
-                  height: 2,
+                  height: _activeBorderWidth,
                   child: ColoredBox(color: AppPalette.red),
                 ),
             ],

@@ -1039,6 +1039,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                   channel: _customerChatChannel,
                   onChannelChanged: (value) =>
                       setState(() => _customerChatChannel = value),
+                  onOpenWheels: () => _selectTab(2),
                   onSend: () => _sendChat(context),
                   onSendPhoto: () => _sendChatPhoto(context),
                   onSendDocument: () => _sendChatDocument(context),
@@ -2407,6 +2408,7 @@ class _CustomerChatTab extends StatelessWidget {
     required this.chatMessageController,
     required this.channel,
     required this.onChannelChanged,
+    required this.onOpenWheels,
     required this.onSend,
     required this.onSendPhoto,
     required this.onSendDocument,
@@ -2415,6 +2417,7 @@ class _CustomerChatTab extends StatelessWidget {
   final TextEditingController chatMessageController;
   final ChatChannel channel;
   final ValueChanged<ChatChannel> onChannelChanged;
+  final VoidCallback onOpenWheels;
   final VoidCallback onSend;
   final VoidCallback onSendPhoto;
   final VoidCallback onSendDocument;
@@ -2433,6 +2436,7 @@ class _CustomerChatTab extends StatelessWidget {
                 key: PageStorageKey('customer-chat-${item.name}'),
                 chatMessageController: chatMessageController,
                 channel: item,
+                onOpenWheels: onOpenWheels,
                 onSend: onSend,
                 onSendPhoto: onSendPhoto,
                 onSendDocument: onSendDocument,
@@ -2444,11 +2448,70 @@ class _CustomerChatTab extends StatelessWidget {
   }
 }
 
+class _CustomerChatEmptyState extends StatelessWidget {
+  const _CustomerChatEmptyState({
+    required this.channel,
+    required this.onOpenWheels,
+  });
+
+  final ChatChannel channel;
+  final VoidCallback onOpenWheels;
+
+  @override
+  Widget build(BuildContext context) {
+    final showWheelsButton =
+        channel == ChatChannel.buying || channel == ChatChannel.selling;
+    final message = switch (channel) {
+      ChatChannel.buying =>
+        'No cars from your buy history yet. Search in Wheels to find cars.',
+      ChatChannel.selling =>
+        'No cars from your sell history yet. Open Wheels and tap the plus button to list a car.',
+      ChatChannel.general => 'No general messages yet.',
+    };
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                showWheelsButton
+                    ? Icons.motion_photos_auto_outlined
+                    : Icons.chat_bubble_outline_rounded,
+                color: AppPalette.red,
+                size: 34,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (showWheelsButton) ...[
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: onOpenWheels,
+                  icon: const Icon(Icons.motion_photos_auto_outlined),
+                  label: const Text('Open Wheels'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CustomerChatChannelView extends StatelessWidget {
   const _CustomerChatChannelView({
     super.key,
     required this.chatMessageController,
     required this.channel,
+    required this.onOpenWheels,
     required this.onSend,
     required this.onSendPhoto,
     required this.onSendDocument,
@@ -2456,6 +2519,7 @@ class _CustomerChatChannelView extends StatelessWidget {
 
   final TextEditingController chatMessageController;
   final ChatChannel channel;
+  final VoidCallback onOpenWheels;
   final VoidCallback onSend;
   final VoidCallback onSendPhoto;
   final VoidCallback onSendDocument;
@@ -2472,11 +2536,9 @@ class _CustomerChatChannelView extends StatelessWidget {
       children: [
         Expanded(
           child: messages.isEmpty
-              ? Center(
-                  child: Text(
-                    'No ${channel.label.toLowerCase()} messages yet.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+              ? _CustomerChatEmptyState(
+                  channel: channel,
+                  onOpenWheels: onOpenWheels,
                 )
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),

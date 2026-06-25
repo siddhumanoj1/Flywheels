@@ -34,7 +34,7 @@ class _LoginPageState extends State<LoginPage> {
   _AuthMode _authMode = _AuthMode.welcome;
   bool _otpRequested = false;
   bool _dataSharingConsent = false;
-  bool _accountCarEdited = false;
+  bool _wantsAccountCarDetails = false;
   String? _accountMessage;
   bool _accountMessageIsError = true;
   String? _phoneLoginNotice;
@@ -154,13 +154,6 @@ class _LoginPageState extends State<LoginPage> {
     return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
   }
 
-  bool get _hasAnyCarDetails {
-    return _carNumberController.text.trim().isNotEmpty ||
-        _fuelController.text.trim().isNotEmpty ||
-        _accountCarImagePath != null ||
-        _accountCarEdited;
-  }
-
   Future<void> _openPhoneLogin({
     required AppController controller,
     String? phone,
@@ -193,7 +186,7 @@ class _LoginPageState extends State<LoginPage> {
     final carModel = _carModelController.text.trim();
     final fuelType = _fuelController.text.trim();
     final year = int.tryParse(_yearController.text.trim());
-    final shouldCreateCar = _hasAnyCarDetails;
+    final shouldCreateCar = _wantsAccountCarDetails;
 
     if (name.isEmpty) {
       _showAccountMessage('Name is required.');
@@ -323,8 +316,8 @@ class _LoginPageState extends State<LoginPage> {
       builder: (context, value, child) {
         final wordmarkProgress = _intervalProgress(
           value,
-          0.22,
-          0.68,
+          0.0,
+          0.52,
           Curves.easeOutCubic,
         );
         final copyProgress = _intervalProgress(
@@ -345,8 +338,6 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _WelcomeOpeningMark(progress: value),
-              SizedBox(height: 14 + (8 * (1 - wordmarkProgress))),
               Opacity(
                 opacity: wordmarkProgress,
                 child: Transform.translate(
@@ -354,7 +345,9 @@ class _LoginPageState extends State<LoginPage> {
                   child: const BrandWordmark(center: true),
                 ),
               ),
-              const SizedBox(height: 26),
+              SizedBox(height: 14 + (8 * (1 - wordmarkProgress))),
+              _WelcomeOpeningMark(progress: value),
+              const SizedBox(height: 24),
               Opacity(
                 opacity: copyProgress,
                 child: Transform.translate(
@@ -546,26 +539,62 @@ class _LoginPageState extends State<LoginPage> {
                 hintText: 'Optional',
               ),
             ),
-            const SizedBox(height: 18),
-            Text('Car details', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            CustomerCarDetailsFields(
-              picker: _picker,
-              carNumberController: _carNumberController,
-              modelController: _carModelController,
-              fuelController: _fuelController,
-              yearController: _yearController,
-              onImagePathChanged: (path) {
-                setState(() => _accountCarImagePath = path);
-              },
-              onEdited: () {
+            CheckboxListTile(
+              value: _wantsAccountCarDetails,
+              onChanged: (value) {
                 setState(() {
-                  _accountCarEdited = true;
+                  _wantsAccountCarDetails = value ?? false;
                   _accountMessage = null;
                 });
               },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Add car details now'),
             ),
-            const SizedBox(height: 12),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: _wantsAccountCarDetails
+                  ? Container(
+                      key: const ValueKey('account-car-details'),
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppPalette.soft,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppPalette.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Car details',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          CustomerCarDetailsFields(
+                            picker: _picker,
+                            carNumberController: _carNumberController,
+                            modelController: _carModelController,
+                            fuelController: _fuelController,
+                            yearController: _yearController,
+                            onImagePathChanged: (path) {
+                              setState(() => _accountCarImagePath = path);
+                            },
+                            onEdited: () {
+                              setState(() {
+                                _accountMessage = null;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('no-car-details')),
+            ),
             CheckboxListTile(
               value: _dataSharingConsent,
               onChanged: (value) {
@@ -695,22 +724,7 @@ class _WelcomeOpeningMark extends StatelessWidget {
             opacity: logoOpacity,
             child: Transform.scale(
               scale: 0.9 + (0.1 * logoOpacity),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppPalette.white,
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: AppPalette.border),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppPalette.black.withValues(alpha: 0.06),
-                      blurRadius: 18,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: const BrandLogo(size: 76),
-              ),
+              child: const BrandLogo(size: 86),
             ),
           ),
         ],

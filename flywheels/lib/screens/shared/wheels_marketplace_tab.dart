@@ -139,8 +139,10 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
                       backgroundColor: AppPalette.red,
                       foregroundColor: AppPalette.white,
                     ),
-                    onPressed: () =>
-                        showWheelsListingSheet(context, picker: _picker),
+                    onPressed: () => showCustomerWheelsListingDialog(
+                      context,
+                      picker: _picker,
+                    ),
                     icon: const Icon(Icons.add_rounded),
                   ),
               ],
@@ -1487,6 +1489,453 @@ class _WheelsEmptyApprovalState extends StatelessWidget {
         style: Theme.of(context).textTheme.bodySmall,
       ),
     );
+  }
+}
+
+Future<void> showCustomerWheelsListingDialog(
+  BuildContext context, {
+  ImagePicker? picker,
+}) async {
+  final controller = FlywheelsScope.read(context);
+  final localPicker = picker ?? ImagePicker();
+  final titleController = TextEditingController();
+  final carNumberController = TextEditingController();
+  final modelController = TextEditingController();
+  final fuelController = TextEditingController(text: 'Petrol');
+  final yearController = TextEditingController(
+    text: DateTime.now().year.toString(),
+  );
+  final priceController = TextEditingController();
+  final odometerController = TextEditingController();
+  final transmissionController = TextEditingController(text: 'Manual');
+  final locationController = TextEditingController(text: 'Hyderabad');
+  final descriptionController = TextEditingController();
+  final bodyTypeController = TextEditingController(text: 'SUV');
+  final colorController = TextEditingController(text: 'White');
+  final featuresController = TextEditingController();
+  final seatsController = TextEditingController(text: '5');
+  final ownersController = TextEditingController(text: '1');
+  final rtoController = TextEditingController(text: 'TS');
+  final media = <CarSaleMedia>[];
+
+  int parseInt(TextEditingController textController) {
+    final digits = textController.text.replaceAll(RegExp(r'[^0-9]'), '');
+    return int.tryParse(digits) ?? 0;
+  }
+
+  double parsePrice() {
+    final digits = priceController.text.replaceAll(RegExp(r'[^0-9.]'), '');
+    return double.tryParse(digits) ?? 0;
+  }
+
+  List<String> parseFeatures() {
+    return featuresController.text
+        .split(',')
+        .map((feature) => feature.trim())
+        .where((feature) => feature.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  try {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              child: SafeArea(
+                top: false,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 560,
+                    maxHeight: MediaQuery.of(dialogContext).size.height * 0.88,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 14, 10, 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Submit car for sale',
+                                style: Theme.of(
+                                  dialogContext,
+                                ).textTheme.titleLarge,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Close',
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                          children: [
+                            TextField(
+                              controller: titleController,
+                              decoration: const InputDecoration(
+                                labelText: 'Listing title',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: carNumberController,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                labelText: 'Car number',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: modelController,
+                              decoration: const InputDecoration(
+                                labelText: 'Make & Model',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: fuelController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Fuel',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: yearController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Model Year',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: priceController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Expected price',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: odometerController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Kms Driven',
+                                      suffixText: 'km',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: transmissionController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Transmission',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: locationController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Location',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: bodyTypeController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Body Type',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: colorController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Color',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: seatsController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Seats',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: ownersController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Owners',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: rtoController,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                labelText: 'RTO',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: featuresController,
+                              decoration: const InputDecoration(
+                                labelText: 'Features',
+                                hintText: 'Sunroof, camera, alloy wheels',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: descriptionController,
+                              minLines: 3,
+                              maxLines: 5,
+                              decoration: const InputDecoration(
+                                labelText: 'Detailed information',
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              'Pictures and videos',
+                              style: Theme.of(
+                                dialogContext,
+                              ).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            if (media.isNotEmpty)
+                              SizedBox(
+                                height: 88,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: media.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(width: 8),
+                                  itemBuilder: (context, index) {
+                                    final item = media[index];
+                                    return Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        SizedBox(
+                                          width: 96,
+                                          height: 78,
+                                          child: _ListingMediaView(
+                                            media: item,
+                                            fallbackModel: modelController.text,
+                                            fallbackYear:
+                                                int.tryParse(
+                                                  yearController.text,
+                                                ) ??
+                                                DateTime.now().year,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          right: -8,
+                                          top: -8,
+                                          child: IconButton.filled(
+                                            iconSize: 16,
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            style: IconButton.styleFrom(
+                                              backgroundColor: AppPalette.black,
+                                              foregroundColor: AppPalette.white,
+                                            ),
+                                            onPressed: () => setDialogState(
+                                              () => media.removeAt(index),
+                                            ),
+                                            icon: const Icon(
+                                              Icons.close_rounded,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final image = await localPicker.pickImage(
+                                      source: ImageSource.gallery,
+                                      imageQuality: 85,
+                                    );
+                                    if (image == null ||
+                                        !dialogContext.mounted) {
+                                      return;
+                                    }
+                                    setDialogState(() {
+                                      media.add(
+                                        CarSaleMedia(
+                                          path: image.path,
+                                          type: CarSaleMediaType.image,
+                                          caption: 'Sale photo',
+                                        ),
+                                      );
+                                    });
+                                  },
+                                  icon: const Icon(Icons.photo_outlined),
+                                  label: const Text('Add picture'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final video = await localPicker.pickVideo(
+                                      source: ImageSource.gallery,
+                                    );
+                                    if (video == null ||
+                                        !dialogContext.mounted) {
+                                      return;
+                                    }
+                                    setDialogState(() {
+                                      media.add(
+                                        CarSaleMedia(
+                                          path: video.path,
+                                          type: CarSaleMediaType.video,
+                                          caption: 'Sale video',
+                                        ),
+                                      );
+                                    });
+                                  },
+                                  icon: const Icon(Icons.videocam_outlined),
+                                  label: const Text('Add video'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              if (modelController.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Add the make and model before submitting.',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                              controller.addSaleListing(
+                                carNumber: carNumberController.text,
+                                title: titleController.text,
+                                model: modelController.text,
+                                fuelType: fuelController.text,
+                                year:
+                                    int.tryParse(yearController.text.trim()) ??
+                                    DateTime.now().year,
+                                price: parsePrice(),
+                                odometerKm: parseInt(odometerController),
+                                transmission: transmissionController.text,
+                                location: locationController.text,
+                                description: descriptionController.text,
+                                media: List<CarSaleMedia>.from(media),
+                                bodyType: bodyTypeController.text,
+                                color: colorController.text,
+                                features: parseFeatures(),
+                                seats: parseInt(seatsController),
+                                ownerCount: parseInt(ownersController),
+                                rto: rtoController.text,
+                              );
+                              Navigator.of(dialogContext).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Car submitted for owner approval.',
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.publish_rounded),
+                            label: const Text('Submit for approval'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  } finally {
+    titleController.dispose();
+    carNumberController.dispose();
+    modelController.dispose();
+    fuelController.dispose();
+    yearController.dispose();
+    priceController.dispose();
+    odometerController.dispose();
+    transmissionController.dispose();
+    locationController.dispose();
+    descriptionController.dispose();
+    bodyTypeController.dispose();
+    colorController.dispose();
+    featuresController.dispose();
+    seatsController.dispose();
+    ownersController.dispose();
+    rtoController.dispose();
   }
 }
 
