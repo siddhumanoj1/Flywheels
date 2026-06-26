@@ -512,6 +512,8 @@ class CarSaleListing {
   }
 }
 
+const Object _copyWithUnset = Object();
+
 class ServiceJob {
   const ServiceJob({
     required this.id,
@@ -523,6 +525,10 @@ class ServiceJob {
     required this.pickupRequired,
     required this.pickupState,
     this.pickupAddress,
+    this.pickupLatitude,
+    this.pickupLongitude,
+    this.pickupMapUrl,
+    this.pickupPhotoPath,
     this.pickupPersonName,
     this.pickupPersonPhone,
     this.locationAccessGranted = false,
@@ -539,11 +545,18 @@ class ServiceJob {
   final bool pickupRequired;
   final PickupState pickupState;
   final String? pickupAddress;
+  final double? pickupLatitude;
+  final double? pickupLongitude;
+  final String? pickupMapUrl;
+  final String? pickupPhotoPath;
   final String? pickupPersonName;
   final String? pickupPersonPhone;
   final bool locationAccessGranted;
   final String? masterMechanicId;
   final List<String> mechanicIds;
+
+  bool get hasPickupCoordinates =>
+      pickupLatitude != null && pickupLongitude != null;
 
   ServiceJob copyWith({
     JobStatus? status,
@@ -551,7 +564,11 @@ class ServiceJob {
     DateTime? pickupTime,
     bool? pickupRequired,
     PickupState? pickupState,
-    String? pickupAddress,
+    Object? pickupAddress = _copyWithUnset,
+    Object? pickupLatitude = _copyWithUnset,
+    Object? pickupLongitude = _copyWithUnset,
+    Object? pickupMapUrl = _copyWithUnset,
+    Object? pickupPhotoPath = _copyWithUnset,
     String? pickupPersonName,
     String? pickupPersonPhone,
     bool? locationAccessGranted,
@@ -567,7 +584,21 @@ class ServiceJob {
       pickupTime: pickupTime ?? this.pickupTime,
       pickupRequired: pickupRequired ?? this.pickupRequired,
       pickupState: pickupState ?? this.pickupState,
-      pickupAddress: pickupAddress ?? this.pickupAddress,
+      pickupAddress: pickupAddress == _copyWithUnset
+          ? this.pickupAddress
+          : pickupAddress as String?,
+      pickupLatitude: pickupLatitude == _copyWithUnset
+          ? this.pickupLatitude
+          : pickupLatitude as double?,
+      pickupLongitude: pickupLongitude == _copyWithUnset
+          ? this.pickupLongitude
+          : pickupLongitude as double?,
+      pickupMapUrl: pickupMapUrl == _copyWithUnset
+          ? this.pickupMapUrl
+          : pickupMapUrl as String?,
+      pickupPhotoPath: pickupPhotoPath == _copyWithUnset
+          ? this.pickupPhotoPath
+          : pickupPhotoPath as String?,
       pickupPersonName: pickupPersonName ?? this.pickupPersonName,
       pickupPersonPhone: pickupPersonPhone ?? this.pickupPersonPhone,
       locationAccessGranted:

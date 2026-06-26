@@ -4,6 +4,7 @@ import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/api_client.dart';
 import 'package:flywheels/services/car_media_service.dart';
 import 'package:flywheels/services/demo_seed.dart';
+import 'package:flywheels/services/google_maps_link_service.dart';
 import 'package:flutter/foundation.dart';
 
 class AppController extends ChangeNotifier {
@@ -1626,10 +1627,24 @@ class AppController extends ChangeNotifier {
     String carId, {
     required DateTime pickupTime,
     String? pickupAddress,
+    double? pickupLatitude,
+    double? pickupLongitude,
+    String? pickupMapUrl,
+    String? pickupPhotoPath,
     required bool locationAccessGranted,
   }) {
     final car = _cars.where((item) => item.id == carId).firstOrNull;
     if (car == null) return;
+    final cleanAddress = pickupAddress?.trim();
+    final cleanPhotoPath = pickupPhotoPath?.trim();
+    final resolvedMapUrl = pickupMapUrl?.trim().isNotEmpty == true
+        ? pickupMapUrl!.trim()
+        : pickupLatitude != null && pickupLongitude != null
+        ? GoogleMapsLinkService.mapUrlForCoordinates(
+            latitude: pickupLatitude,
+            longitude: pickupLongitude,
+          )
+        : null;
     final existingIndex = _jobs.indexWhere(
       (job) => job.carId == carId && job.status != JobStatus.onRoad,
     );
@@ -1642,7 +1657,15 @@ class AppController extends ChangeNotifier {
         pickupRequired: true,
         pickupState: PickupState.requested,
         pickupTime: pickupTime,
-        pickupAddress: pickupAddress,
+        pickupAddress: cleanAddress == null || cleanAddress.isEmpty
+            ? null
+            : cleanAddress,
+        pickupLatitude: pickupLatitude,
+        pickupLongitude: pickupLongitude,
+        pickupMapUrl: resolvedMapUrl,
+        pickupPhotoPath: cleanPhotoPath == null || cleanPhotoPath.isEmpty
+            ? null
+            : cleanPhotoPath,
         locationAccessGranted: locationAccessGranted,
         status: isDeliveryRequest
             ? JobStatus.deliveryScheduled
@@ -1660,7 +1683,15 @@ class AppController extends ChangeNotifier {
           pickupTime: pickupTime,
           pickupRequired: true,
           pickupState: PickupState.requested,
-          pickupAddress: pickupAddress,
+          pickupAddress: cleanAddress == null || cleanAddress.isEmpty
+              ? null
+              : cleanAddress,
+          pickupLatitude: pickupLatitude,
+          pickupLongitude: pickupLongitude,
+          pickupMapUrl: resolvedMapUrl,
+          pickupPhotoPath: cleanPhotoPath == null || cleanPhotoPath.isEmpty
+              ? null
+              : cleanPhotoPath,
           locationAccessGranted: locationAccessGranted,
         ),
       );
@@ -1698,9 +1729,14 @@ class AppController extends ChangeNotifier {
         userId: car.userId,
         topic: isDeliveryRequest ? 'Delivery' : 'Pickup and drop',
         message:
-            '${isDeliveryRequest ? 'Delivery' : 'Pickup'} requested for ${_formatWhatsappDate(pickupTime)}${pickupAddress == null || pickupAddress.isEmpty ? '' : ' at $pickupAddress'}.',
+            '${isDeliveryRequest ? 'Delivery' : 'Pickup'} requested for ${_formatWhatsappDate(pickupTime)}'
+            '${cleanAddress == null || cleanAddress.isEmpty ? '' : ' at $cleanAddress'}'
+            '${resolvedMapUrl == null ? '' : '. Map: $resolvedMapUrl'}.',
         createdAt: DateTime.now(),
         carId: car.id,
+        attachmentPath: cleanPhotoPath == null || cleanPhotoPath.isEmpty
+            ? null
+            : cleanPhotoPath,
       ),
     );
     notifyListeners();
@@ -2335,14 +2371,29 @@ class AppController extends ChangeNotifier {
     CarProfile car, {
     required DateTime pickupTime,
     String? pickupAddress,
+    double? pickupLatitude,
+    double? pickupLongitude,
+    String? pickupMapUrl,
+    String? pickupPhotoPath,
     required bool locationAccessGranted,
   }) {
+    final cleanMapUrl = pickupMapUrl?.trim().isNotEmpty == true
+        ? pickupMapUrl!.trim()
+        : pickupLatitude != null && pickupLongitude != null
+        ? GoogleMapsLinkService.mapUrlForCoordinates(
+            latitude: pickupLatitude,
+            longitude: pickupLongitude,
+          )
+        : null;
+    final cleanPhotoPath = pickupPhotoPath?.trim();
     return 'FLYWHEELS AUTO pickup request\n'
         'Vehicle: ${car.carNumber}\n'
         'Model: ${car.model}\n'
         'Pickup time: ${_formatWhatsappDate(pickupTime)}\n'
         '${pickupAddress == null || pickupAddress.isEmpty ? '' : 'Address: $pickupAddress\n'}'
-        'Location access: ${locationAccessGranted ? 'Approved' : 'Not approved'}';
+        '${cleanMapUrl == null ? '' : 'Google Maps: $cleanMapUrl\n'}'
+        'Location access: ${locationAccessGranted ? 'Approved' : 'Not approved'}'
+        '${cleanPhotoPath == null || cleanPhotoPath.isEmpty ? '' : '\nPickup car photo: attached in app'}';
   }
 
   String _formatWhatsappDate(DateTime value) {

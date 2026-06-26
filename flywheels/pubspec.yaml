@@ -19,6 +19,9 @@ dependencies:
   path_provider: ^2.1.5
   share_plus: ^12.0.2
   sms_autofill: ^2.5.0
+  google_maps_flutter: ^2.17.1
+  geolocator: ^14.0.2
+  flutter_svg: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +32,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/flywheels-logo.png
+    - assets/car_status/car.svg
+    - assets/car_status/repair.svg
+    - assets/car_status/tire.svg

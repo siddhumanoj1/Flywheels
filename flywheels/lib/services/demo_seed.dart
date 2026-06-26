@@ -1,5 +1,6 @@
 import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/car_media_service.dart';
+import 'package:flywheels/services/google_maps_link_service.dart';
 
 abstract final class DemoSeed {
   static const customerUser = GarageUser(
@@ -243,6 +244,14 @@ abstract final class DemoSeed {
       pickupRequired: true,
       pickupState: PickupState.assigned,
       pickupAddress: 'Madhapur, Hyderabad',
+      pickupLatitude: 17.448294,
+      pickupLongitude: 78.391487,
+      pickupMapUrl: GoogleMapsLinkService.mapUrlForCoordinates(
+        latitude: 17.448294,
+        longitude: 78.391487,
+      ),
+      pickupPhotoPath:
+          'https://images.unsplash.com/photo-1590362891991-f776e747a588?auto=format&fit=crop&w=1200&q=80',
       pickupPersonName: 'Ravi Kumar',
       pickupPersonPhone: '9000012345',
       locationAccessGranted: true,

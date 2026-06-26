@@ -28,6 +28,12 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FLYWHEELS AUTO lets customers and garage staff attach profile and service photos.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>FLYWHEELS AUTO lets customers attach pickup vehicle photos.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FLYWHEELS AUTO uses your location to create Google Maps pickup links for the garage.</string>
+	<key>GMSApiKey</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -6,13 +6,16 @@ import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/screens/owner/owner_document_tab.dart';
 import 'package:flywheels/screens/shared/wheels_marketplace_tab.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
+import 'package:flywheels/services/google_maps_link_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
 import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
+import 'package:flywheels/widgets/car_status_tracker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class OwnerHomePage extends StatefulWidget {
   const OwnerHomePage({super.key});
@@ -2179,6 +2182,20 @@ class _OwnerOperationsTab extends StatelessWidget {
     }
   }
 
+  void _changeJobStatus(
+    AppController controller,
+    CarProfile car,
+    ServiceJob job,
+    JobStatus status,
+  ) {
+    if (job.status == status) return;
+    controller.setJobStatus(job.id, status);
+    controller.sendStatusUpdate(
+      job.id,
+      '${car.carNumber} moved to ${status.label.toLowerCase()}.',
+    );
+  }
+
   bool _matchesFilter(
     ServiceJob? job,
     List<WorkApprovalRequest> pendingApprovals,
@@ -2313,254 +2330,268 @@ class _OwnerOperationsTab extends StatelessWidget {
     BuildContext context,
     AppController controller,
     CarProfile car,
-    ServiceJob? job,
   ) {
     final customer = controller.customerForCar(car.id);
     final documents = controller.documentsForCar(car.id);
     final history = controller.jobsForCar(car.id);
     final photos = controller.photoUpdatesForCar(car.id);
-    final state = controller.workflowStateForCar(car.id);
     final pendingApprovals = _pendingApprovalRequestsForCar(controller, car);
 
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.78,
-              child: ListView(
-                children: [
-                  Row(
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final currentJob = controller.latestJobForCar(car.id);
+            final currentState = controller.workflowStateForCar(car.id);
+
+            void handleTrackerStatus(JobStatus status) {
+              final latestJob = controller.latestJobForCar(car.id);
+              if (latestJob == null) return;
+              _changeJobStatus(controller, car, latestJob, status);
+              setModalState(() {});
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.78,
+                  child: ListView(
                     children: [
-                      AppImage(
-                        path: car.imageUrl,
-                        width: 84,
-                        height: 64,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              car.carNumber,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            Text('${customer?.name ?? '-'} | ${car.model}'),
-                            Text(
-                              customer?.phone ?? '-',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (job == null || state.isAvailable)
-                    _OwnerCarStateCard(state: state)
-                  else
-                    HorizontalServiceTimeline(status: job.status),
-                  const SizedBox(height: 12),
-                  if (job != null) _OwnerPickupWorkflowCard(job: job),
-                  if (job != null) const SizedBox(height: 10),
-                  if (pendingApprovals.isNotEmpty) ...[
-                    _OwnerTeamSection(
-                      title: 'Approval messages',
-                      emptyText: 'No approval messages for this car.',
-                      children: pendingApprovals
-                          .map((request) => _WorkApprovalCard(request: request))
-                          .toList(),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  if (job != null)
-                    DropdownButtonFormField<JobStatus>(
-                      initialValue: job.status,
-                      decoration: const InputDecoration(labelText: 'Status'),
-                      items: JobStatus.values
-                          .map(
-                            (status) => DropdownMenuItem<JobStatus>(
-                              value: status,
-                              child: Text(status.label),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        controller.setJobStatus(job.id, value);
-                        controller.sendStatusUpdate(
-                          job.id,
-                          '${car.carNumber} moved to ${value.label.toLowerCase()}.',
-                        );
-                        Navigator.of(context).pop();
-                      },
-                    ),
-                  const SizedBox(height: 14),
-                  GearboxActionGrid(
-                    children: [
-                      if (job != null) ...[
-                        AutomotiveControlButton(
-                          icon: Icons.local_shipping_outlined,
-                          label: state == CarWorkflowState.readyForDelivery
-                              ? 'Deliver'
-                              : 'Assign',
-                          active:
-                              job.pickupState == PickupState.assigned &&
-                              state.isTransit,
-                          onPressed: () => onAssignPickup(job),
-                        ),
-                        AutomotiveControlButton(
-                          icon: Icons.task_alt_rounded,
-                          label: state == CarWorkflowState.readyForDelivery
-                              ? 'Delivered'
-                              : 'Transit done',
-                          active: job.pickupState == PickupState.completed,
-                          onPressed: () => onCompletePickup(job),
-                        ),
-                        AutomotiveControlButton(
-                          icon: Icons.search_rounded,
-                          label: 'Inspect',
-                          active: job.status == JobStatus.underInspection,
-                          onPressed: () =>
-                              onAddPhoto(car, JobStatus.underInspection),
-                        ),
-                        AutomotiveControlButton(
-                          icon: Icons.handyman_outlined,
-                          label: 'Work photo',
-                          active: job.status == JobStatus.workInProgress,
-                          onPressed: () =>
-                              onAddPhoto(car, JobStatus.workInProgress),
-                        ),
-                        AutomotiveControlButton(
-                          icon: Icons.verified_outlined,
-                          label: 'Complete',
-                          active: job.status == JobStatus.completed,
-                          onPressed: () => onAddPhoto(car, JobStatus.completed),
-                        ),
-                        AutomotiveControlButton(
-                          icon: Icons.route_rounded,
-                          label: 'On-Road',
-                          active: job.status == JobStatus.onRoad,
-                          onPressed: () {
-                            controller.setJobStatus(job.id, JobStatus.onRoad);
-                            controller.sendStatusUpdate(
-                              job.id,
-                              '${car.carNumber} is back on road.',
-                            );
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                      ],
-                      AutomotiveControlButton(
-                        icon: Icons.photo_camera_outlined,
-                        label: 'Photo',
-                        onPressed: () => onAddPhoto(car, null),
-                      ),
-                      AutomotiveControlButton(
-                        icon: Icons.sell_outlined,
-                        label: 'Sell',
-                        active: state.isAvailable || state.isInGarage,
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          onSellCar(car);
-                        },
-                      ),
-                      AutomotiveControlButton(
-                        icon: Icons.chat_bubble_outline_rounded,
-                        label: 'Chat',
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          onOpenChat(car);
-                        },
-                      ),
-                      AutomotiveControlButton(
-                        icon: Icons.receipt_long_outlined,
-                        label: 'Bills',
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          onOpenDocuments(car.id);
-                        },
-                      ),
-                      AutomotiveControlButton(
-                        icon: Icons.notifications_active_outlined,
-                        label: 'Update',
-                        onPressed: job == null
-                            ? null
-                            : () => controller.sendStatusUpdate(
-                                job.id,
-                                '${car.carNumber} update shared from the garage desk.',
-                              ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    'History',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  ...history.map(
-                    (item) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      leading: const Icon(Icons.timeline_rounded),
-                      title: Text(item.status.label),
-                      subtitle: Text(
-                        'ETA ${formatDateTime(item.expectedCompletion)} | ${_mechanicHistoryText(controller, item)}',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Bills', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  if (documents.isEmpty)
-                    Text(
-                      'No bills or estimates yet.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ...documents.map(
-                    (document) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      leading: const Icon(Icons.description_outlined),
-                      title: Text(document.title),
-                      subtitle: Text(
-                        '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Photos',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  ...photos
-                      .take(3)
-                      .map(
-                        (photo) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          leading: AppImage(
-                            path: photo.imagePath,
-                            width: 48,
-                            height: 38,
+                      Row(
+                        children: [
+                          AppImage(
+                            path: car.imageUrl,
+                            width: 84,
+                            height: 64,
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          title: Text(photo.caption),
-                          subtitle: Text(formatDateTime(photo.createdAt)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  car.carNumber,
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                Text('${customer?.name ?? '-'} | ${car.model}'),
+                                Text(
+                                  customer?.phone ?? '-',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      GarageServiceTracker(
+                        status: currentJob?.status ?? JobStatus.onRoad,
+                        onStatusChanged: currentJob == null
+                            ? null
+                            : handleTrackerStatus,
+                      ),
+                      const SizedBox(height: 12),
+                      if (currentJob != null)
+                        _OwnerPickupWorkflowCard(job: currentJob),
+                      if (currentJob != null) const SizedBox(height: 10),
+                      if (pendingApprovals.isNotEmpty) ...[
+                        _OwnerTeamSection(
+                          title: 'Approval messages',
+                          emptyText: 'No approval messages for this car.',
+                          children: pendingApprovals
+                              .map(
+                                (request) =>
+                                    _WorkApprovalCard(request: request),
+                              )
+                              .toList(),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      GearboxActionGrid(
+                        children: [
+                          if (currentJob != null) ...[
+                            AutomotiveControlButton(
+                              icon: Icons.local_shipping_outlined,
+                              label:
+                                  currentState ==
+                                      CarWorkflowState.readyForDelivery
+                                  ? 'Deliver'
+                                  : 'Assign',
+                              active:
+                                  currentJob.pickupState ==
+                                      PickupState.assigned &&
+                                  currentState.isTransit,
+                              onPressed: () => onAssignPickup(currentJob),
+                            ),
+                            AutomotiveControlButton(
+                              icon: Icons.task_alt_rounded,
+                              label:
+                                  currentState ==
+                                      CarWorkflowState.readyForDelivery
+                                  ? 'Delivered'
+                                  : 'Transit done',
+                              active:
+                                  currentJob.pickupState ==
+                                  PickupState.completed,
+                              onPressed: () => onCompletePickup(currentJob),
+                            ),
+                            AutomotiveControlButton(
+                              icon: Icons.search_rounded,
+                              label: 'Inspect',
+                              active:
+                                  currentJob.status ==
+                                  JobStatus.underInspection,
+                              onPressed: () =>
+                                  onAddPhoto(car, JobStatus.underInspection),
+                            ),
+                            AutomotiveControlButton(
+                              icon: Icons.handyman_outlined,
+                              label: 'Work photo',
+                              active:
+                                  currentJob.status == JobStatus.workInProgress,
+                              onPressed: () =>
+                                  onAddPhoto(car, JobStatus.workInProgress),
+                            ),
+                            AutomotiveControlButton(
+                              icon: Icons.verified_outlined,
+                              label: 'Complete',
+                              active: currentJob.status == JobStatus.completed,
+                              onPressed: () =>
+                                  onAddPhoto(car, JobStatus.completed),
+                            ),
+                            AutomotiveControlButton(
+                              icon: Icons.route_rounded,
+                              label: 'On-Road',
+                              active: currentJob.status == JobStatus.onRoad,
+                              onPressed: () {
+                                controller.setJobStatus(
+                                  currentJob.id,
+                                  JobStatus.onRoad,
+                                );
+                                controller.sendStatusUpdate(
+                                  currentJob.id,
+                                  '${car.carNumber} is back on road.',
+                                );
+                                Navigator.of(context).pop();
+                              },
+                            ),
+                          ],
+                          AutomotiveControlButton(
+                            icon: Icons.photo_camera_outlined,
+                            label: 'Photo',
+                            onPressed: () => onAddPhoto(car, null),
+                          ),
+                          AutomotiveControlButton(
+                            icon: Icons.sell_outlined,
+                            label: 'Sell',
+                            active:
+                                currentState.isAvailable ||
+                                currentState.isInGarage,
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              onSellCar(car);
+                            },
+                          ),
+                          AutomotiveControlButton(
+                            icon: Icons.chat_bubble_outline_rounded,
+                            label: 'Chat',
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              onOpenChat(car);
+                            },
+                          ),
+                          AutomotiveControlButton(
+                            icon: Icons.receipt_long_outlined,
+                            label: 'Bills',
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              onOpenDocuments(car.id);
+                            },
+                          ),
+                          AutomotiveControlButton(
+                            icon: Icons.notifications_active_outlined,
+                            label: 'Update',
+                            onPressed: currentJob == null
+                                ? null
+                                : () => controller.sendStatusUpdate(
+                                    currentJob.id,
+                                    '${car.carNumber} update shared from the garage desk.',
+                                  ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'History',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      ...history.map(
+                        (item) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          leading: const Icon(Icons.timeline_rounded),
+                          title: Text(item.status.label),
+                          subtitle: Text(
+                            'ETA ${formatDateTime(item.expectedCompletion)} | ${_mechanicHistoryText(controller, item)}',
+                          ),
                         ),
                       ),
-                ],
+                      const SizedBox(height: 8),
+                      Text(
+                        'Bills',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      if (documents.isEmpty)
+                        Text(
+                          'No bills or estimates yet.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ...documents.map(
+                        (document) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          leading: const Icon(Icons.description_outlined),
+                          title: Text(document.title),
+                          subtitle: Text(
+                            '${document.type.label} | ${formatCurrency(document.total)} | ${document.approvalState.name}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Photos',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      ...photos
+                          .take(3)
+                          .map(
+                            (photo) => ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              leading: AppImage(
+                                path: photo.imagePath,
+                                width: 48,
+                                height: 38,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              title: Text(photo.caption),
+                              subtitle: Text(formatDateTime(photo.createdAt)),
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -2659,7 +2690,6 @@ class _OwnerOperationsTab extends StatelessWidget {
           const _EmptyOwnerList(message: 'No car profiles match this view.'),
         ...visibleCars.map((car) {
           final job = controller.latestJobForCar(car.id);
-          final state = controller.workflowStateForCar(car.id);
           final customer = controller.customerForCar(car.id);
           final documents = controller.documentsForCar(car.id);
           final pendingApprovals = _pendingApprovalRequestsForCar(
@@ -2671,7 +2701,7 @@ class _OwnerOperationsTab extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 10),
             child: InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: () => _showCarDetail(context, controller, car, job),
+              onTap: () => _showCarDetail(context, controller, car),
               child: Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -2719,13 +2749,6 @@ class _OwnerOperationsTab extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 8),
-                                if (job != null && !state.isAvailable) ...[
-                                  HorizontalServiceTimeline(
-                                    status: job.status,
-                                    compact: true,
-                                  ),
-                                  const SizedBox(height: 6),
-                                ],
                                 Wrap(
                                   spacing: 6,
                                   runSpacing: 6,
@@ -2746,6 +2769,18 @@ class _OwnerOperationsTab extends StatelessWidget {
                           const SizedBox(width: 8),
                           const Icon(Icons.chevron_right_rounded),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                      GarageServiceTracker(
+                        status: job?.status ?? JobStatus.onRoad,
+                        onStatusChanged: job == null
+                            ? null
+                            : (status) => _changeJobStatus(
+                                controller,
+                                car,
+                                job,
+                                status,
+                              ),
                       ),
                       if (pendingApprovals.isNotEmpty) ...[
                         const SizedBox(height: 12),
@@ -2887,6 +2922,7 @@ class _OwnerPickupWorkflowCard extends StatelessWidget {
         ? 'Not assigned'
         : '${job.pickupPersonName}'
               '${job.pickupPersonPhone == null || job.pickupPersonPhone!.isEmpty ? '' : ' | ${job.pickupPersonPhone}'}';
+    final mapUri = _pickupMapUriForJob(job);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2926,42 +2962,45 @@ class _OwnerPickupWorkflowCard extends StatelessWidget {
               'Address ${job.pickupAddress}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+          if (job.pickupPhotoPath != null &&
+              job.pickupPhotoPath!.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            AppImage(
+              path: job.pickupPhotoPath!,
+              width: double.infinity,
+              height: 128,
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ],
+          if (mapUri != null) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  launchUrl(mapUri, mode: LaunchMode.externalApplication),
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Open map'),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _OwnerCarStateCard extends StatelessWidget {
-  const _OwnerCarStateCard({required this.state});
-
-  final CarWorkflowState state;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppPalette.soft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppPalette.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.route_rounded),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              state == CarWorkflowState.registered
-                  ? 'Registered: no active service job yet'
-                  : '${state.label}: available for quote or pickup',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
+Uri? _pickupMapUriForJob(ServiceJob job) {
+  if (job.pickupMapUrl?.trim().isNotEmpty == true) {
+    return Uri.tryParse(job.pickupMapUrl!.trim());
+  }
+  if (job.hasPickupCoordinates) {
+    return GoogleMapsLinkService.mapUriForCoordinates(
+      latitude: job.pickupLatitude!,
+      longitude: job.pickupLongitude!,
     );
   }
+  if (job.pickupAddress?.trim().isNotEmpty == true) {
+    return GoogleMapsLinkService.mapUriForAddress(job.pickupAddress!.trim());
+  }
+  return null;
 }
 
 class _EmptyOwnerList extends StatelessWidget {

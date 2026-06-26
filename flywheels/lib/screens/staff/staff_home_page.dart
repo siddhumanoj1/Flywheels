@@ -1,13 +1,16 @@
 import 'package:flywheels/app/app_scope.dart';
+import 'package:flywheels/controllers/app_controller.dart';
 import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
+import 'package:flywheels/services/google_maps_link_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MasterMechanicHomePage extends StatelessWidget {
   const MasterMechanicHomePage({super.key});
@@ -359,6 +362,86 @@ class _StaffHomePageState extends State<_StaffHomePage> {
     messageController.dispose();
   }
 
+  Future<void> _showGaragePhotoSheet(
+    CarProfile car,
+    StaffProfile staff, {
+    JobStatus? status,
+  }) async {
+    final controller = FlywheelsScope.read(context);
+    final captionController = TextEditingController();
+    final caption = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Add photo',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  status == null
+                      ? 'Add a progress photo for ${car.carNumber}.'
+                      : 'This photo will update ${car.carNumber} to ${status.label}.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: captionController,
+                  minLines: 3,
+                  maxLines: 4,
+                  decoration: const InputDecoration(labelText: 'Photo note'),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () =>
+                        Navigator.of(context).pop(captionController.text),
+                    icon: const Icon(Icons.photo_camera_outlined),
+                    label: const Text('Choose photo'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    captionController.dispose();
+    if (!mounted || caption == null) return;
+
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (!mounted || image == null) return;
+
+    controller.addGaragePhoto(
+      carId: car.id,
+      imagePath: image.path,
+      caption: caption.trim().isEmpty
+          ? '${staff.name} shared a progress photo.'
+          : '${staff.name}: ${caption.trim()}',
+      status: status,
+    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Photo update sent.')));
+  }
+
   Future<void> _showAdvanceSheet(StaffProfile staff) async {
     final controller = FlywheelsScope.read(context);
     final amountController = TextEditingController();
@@ -562,6 +645,7 @@ class _StaffHomePageState extends State<_StaffHomePage> {
         isMasterMechanic: widget.isMasterMechanic,
         onRequestApproval: _showWorkRequestSheet,
         onSendUpdate: _showProgressUpdateSheet,
+        onAddPhoto: _showGaragePhotoSheet,
         onProposeTeam: widget.isMasterMechanic ? _showTeamSheet : null,
         onCreateJobCard: widget.isMasterMechanic ? _showJobCardSheet : null,
       ),
@@ -825,6 +909,7 @@ class _StaffCommunicationCard extends StatelessWidget {
     final controller = FlywheelsScope.of(context);
     final car = controller.carForJob(job);
     final customer = car == null ? null : controller.customerForCar(car.id);
+    final mapUri = _pickupMapUriForJob(job);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -862,10 +947,35 @@ class _StaffCommunicationCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            if (job.pickupAddress != null && job.pickupAddress!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Pickup address: ${job.pickupAddress}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            if (job.pickupPhotoPath != null &&
+                job.pickupPhotoPath!.trim().isNotEmpty) ...[
+              AppImage(
+                path: job.pickupPhotoPath!,
+                width: double.infinity,
+                height: 132,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              const SizedBox(height: 12),
+            ],
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (mapUri != null)
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        launchUrl(mapUri, mode: LaunchMode.externalApplication),
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Pickup map'),
+                  ),
                 FilledButton.icon(
                   onPressed: () => onSendUpdate(job, staff),
                   icon: const Icon(Icons.chat_bubble_outline_rounded),
@@ -880,12 +990,95 @@ class _StaffCommunicationCard extends StatelessWidget {
   }
 }
 
-class _StaffCarsTab extends StatelessWidget {
+enum _StaffCarFilter {
+  all,
+  approvals,
+  pickupScheduled,
+  pickupDone,
+  received,
+  underInspection,
+  workInProgress,
+  completed,
+  deliveryScheduled,
+  onRoad,
+}
+
+extension _StaffCarFilterX on _StaffCarFilter {
+  String get label {
+    switch (this) {
+      case _StaffCarFilter.all:
+        return 'All';
+      case _StaffCarFilter.approvals:
+        return 'Approvals';
+      case _StaffCarFilter.pickupScheduled:
+        return JobStatus.pickupScheduled.label;
+      case _StaffCarFilter.pickupDone:
+        return JobStatus.pickupDone.label;
+      case _StaffCarFilter.received:
+        return JobStatus.received.label;
+      case _StaffCarFilter.underInspection:
+        return JobStatus.underInspection.label;
+      case _StaffCarFilter.workInProgress:
+        return JobStatus.workInProgress.label;
+      case _StaffCarFilter.completed:
+        return JobStatus.completed.label;
+      case _StaffCarFilter.deliveryScheduled:
+        return JobStatus.deliveryScheduled.label;
+      case _StaffCarFilter.onRoad:
+        return JobStatus.onRoad.label;
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _StaffCarFilter.all:
+        return Icons.directions_car_outlined;
+      case _StaffCarFilter.approvals:
+        return Icons.mark_chat_unread_outlined;
+      case _StaffCarFilter.pickupScheduled:
+        return Icons.local_shipping_outlined;
+      case _StaffCarFilter.pickupDone:
+        return Icons.inventory_2_outlined;
+      case _StaffCarFilter.received:
+        return Icons.home_repair_service_outlined;
+      case _StaffCarFilter.underInspection:
+        return Icons.search_rounded;
+      case _StaffCarFilter.workInProgress:
+        return Icons.handyman_outlined;
+      case _StaffCarFilter.completed:
+        return Icons.task_alt_rounded;
+      case _StaffCarFilter.deliveryScheduled:
+        return Icons.local_shipping_outlined;
+      case _StaffCarFilter.onRoad:
+        return Icons.route_rounded;
+    }
+  }
+}
+
+enum _StaffCarSort { approvalsFirst, status, carNumber, customer }
+
+extension _StaffCarSortX on _StaffCarSort {
+  String get label {
+    switch (this) {
+      case _StaffCarSort.approvalsFirst:
+        return 'Approvals first';
+      case _StaffCarSort.status:
+        return 'Status';
+      case _StaffCarSort.carNumber:
+        return 'Car number';
+      case _StaffCarSort.customer:
+        return 'Customer';
+    }
+  }
+}
+
+class _StaffCarsTab extends StatefulWidget {
   const _StaffCarsTab({
     required this.staff,
     required this.isMasterMechanic,
     required this.onRequestApproval,
     required this.onSendUpdate,
+    required this.onAddPhoto,
     this.onProposeTeam,
     this.onCreateJobCard,
   });
@@ -894,19 +1087,479 @@ class _StaffCarsTab extends StatelessWidget {
   final bool isMasterMechanic;
   final void Function(ServiceJob job, StaffProfile staff) onRequestApproval;
   final void Function(ServiceJob job, StaffProfile staff) onSendUpdate;
+  final void Function(CarProfile car, StaffProfile staff, {JobStatus? status})
+  onAddPhoto;
   final void Function(ServiceJob job, StaffProfile staff)? onProposeTeam;
   final void Function(ServiceJob job, StaffProfile staff)? onCreateJobCard;
 
   @override
+  State<_StaffCarsTab> createState() => _StaffCarsTabState();
+}
+
+class _StaffCarsTabState extends State<_StaffCarsTab> {
+  _StaffCarFilter _filter = _StaffCarFilter.all;
+  _StaffCarSort _sort = _StaffCarSort.approvalsFirst;
+  String _searchQuery = '';
+
+  List<WorkApprovalRequest> _approvalRequestsForJob(
+    AppController controller,
+    ServiceJob job,
+  ) {
+    return controller
+        .workRequestsForJob(job.id)
+        .where(
+          (request) =>
+              widget.isMasterMechanic || request.staffId == widget.staff.id,
+        )
+        .toList()
+      ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+  }
+
+  List<WorkApprovalRequest> _pendingApprovalRequestsForJob(
+    AppController controller,
+    ServiceJob job,
+  ) {
+    return _approvalRequestsForJob(
+      controller,
+      job,
+    ).where((request) => request.status == RequestStatus.pending).toList();
+  }
+
+  bool _matchesFilter(
+    ServiceJob job,
+    List<WorkApprovalRequest> pendingApprovals,
+  ) {
+    switch (_filter) {
+      case _StaffCarFilter.all:
+        return true;
+      case _StaffCarFilter.approvals:
+        return pendingApprovals.isNotEmpty;
+      case _StaffCarFilter.pickupScheduled:
+        return job.status == JobStatus.pickupScheduled;
+      case _StaffCarFilter.pickupDone:
+        return job.status == JobStatus.pickupDone;
+      case _StaffCarFilter.received:
+        return job.status == JobStatus.received;
+      case _StaffCarFilter.underInspection:
+        return job.status == JobStatus.underInspection;
+      case _StaffCarFilter.workInProgress:
+        return job.status == JobStatus.workInProgress;
+      case _StaffCarFilter.completed:
+        return job.status == JobStatus.completed;
+      case _StaffCarFilter.deliveryScheduled:
+        return job.status == JobStatus.deliveryScheduled;
+      case _StaffCarFilter.onRoad:
+        return job.status == JobStatus.onRoad;
+    }
+  }
+
+  bool _matchesSearch(
+    AppController controller,
+    ServiceJob job,
+    CarProfile car,
+    List<WorkApprovalRequest> approvals,
+  ) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final customer = controller.customerForCar(car.id);
+    final assignedNames = _assignedPeople(
+      controller,
+      job,
+    ).map((person) => '${person.name} ${person.roleLabel}').join(' ');
+    final approvalText = approvals
+        .map((request) => '${request.title} ${request.message}')
+        .join(' ');
+    final text = [
+      car.carNumber,
+      car.model,
+      car.fuelType,
+      car.year.toString(),
+      customer?.name ?? '',
+      customer?.phone ?? '',
+      job.status.label,
+      assignedNames,
+      approvalText,
+    ].join(' ').toLowerCase();
+    return text.contains(query);
+  }
+
+  List<ServiceJob> _visibleJobs(AppController controller) {
+    final jobs = controller.jobsForStaff(widget.staff.id).where((job) {
+      final car = controller.carForJob(job);
+      if (car == null) return false;
+      final approvals = _approvalRequestsForJob(controller, job);
+      final pendingApprovals = approvals
+          .where((request) => request.status == RequestStatus.pending)
+          .toList();
+      return _matchesFilter(job, pendingApprovals) &&
+          _matchesSearch(controller, job, car, approvals);
+    }).toList();
+    jobs.sort((left, right) => _compareJobs(controller, left, right));
+    return jobs;
+  }
+
+  int _compareJobs(
+    AppController controller,
+    ServiceJob left,
+    ServiceJob right,
+  ) {
+    final leftCar = controller.carForJob(left);
+    final rightCar = controller.carForJob(right);
+    final leftApprovals = _pendingApprovalRequestsForJob(controller, left);
+    final rightApprovals = _pendingApprovalRequestsForJob(controller, right);
+
+    int compareApprovalsFirst() {
+      final approvalCompare = rightApprovals.length.compareTo(
+        leftApprovals.length,
+      );
+      if (approvalCompare != 0) return approvalCompare;
+      final leftLatest = leftApprovals.firstOrNull?.createdAt;
+      final rightLatest = rightApprovals.firstOrNull?.createdAt;
+      if (leftLatest != null && rightLatest != null) {
+        final dateCompare = rightLatest.compareTo(leftLatest);
+        if (dateCompare != 0) return dateCompare;
+      }
+      return (leftCar?.carNumber ?? '').compareTo(rightCar?.carNumber ?? '');
+    }
+
+    switch (_sort) {
+      case _StaffCarSort.approvalsFirst:
+        return compareApprovalsFirst();
+      case _StaffCarSort.status:
+        final statusCompare = left.status.index.compareTo(right.status.index);
+        if (statusCompare != 0) return statusCompare;
+        return compareApprovalsFirst();
+      case _StaffCarSort.carNumber:
+        return (leftCar?.carNumber ?? '').compareTo(rightCar?.carNumber ?? '');
+      case _StaffCarSort.customer:
+        final leftCustomer = leftCar == null
+            ? ''
+            : controller.customerForCar(leftCar.id)?.name ?? '';
+        final rightCustomer = rightCar == null
+            ? ''
+            : controller.customerForCar(rightCar.id)?.name ?? '';
+        final customerCompare = leftCustomer.compareTo(rightCustomer);
+        if (customerCompare != 0) return customerCompare;
+        return (leftCar?.carNumber ?? '').compareTo(rightCar?.carNumber ?? '');
+    }
+  }
+
+  IconData _statusIcon(ServiceJob job) {
+    switch (job.status) {
+      case JobStatus.pickupScheduled:
+        return Icons.local_shipping_outlined;
+      case JobStatus.pickupDone:
+        return Icons.inventory_2_outlined;
+      case JobStatus.received:
+        return Icons.home_repair_service_outlined;
+      case JobStatus.underInspection:
+        return Icons.search_rounded;
+      case JobStatus.workInProgress:
+        return Icons.handyman_outlined;
+      case JobStatus.completed:
+        return Icons.task_alt_rounded;
+      case JobStatus.deliveryScheduled:
+        return Icons.local_shipping_outlined;
+      case JobStatus.onRoad:
+        return Icons.route_rounded;
+    }
+  }
+
+  bool _isPickupAssignedToStaff(ServiceJob job) {
+    final staff = widget.staff;
+    return job.pickupState == PickupState.assigned &&
+        (job.pickupPersonName?.toLowerCase() == staff.name.toLowerCase() ||
+            job.pickupPersonPhone == staff.phone ||
+            job.mechanicIds.contains(staff.id));
+  }
+
+  void _markPickupDone(
+    BuildContext context,
+    AppController controller,
+    ServiceJob job,
+  ) {
+    controller.completePickup(job.id);
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Pickup marked done.')));
+  }
+
+  void _setStatus(
+    BuildContext context,
+    AppController controller,
+    ServiceJob job,
+    JobStatus status,
+    String message,
+  ) {
+    controller.setJobStatus(job.id, status);
+    controller.sendStatusUpdate(job.id, message);
+    Navigator.of(context).pop();
+  }
+
+  void _showCarDetail(
+    BuildContext context,
+    AppController controller,
+    ServiceJob job,
+  ) {
+    final car = controller.carForJob(job);
+    if (car == null) return;
+    final customer = controller.customerForCar(car.id);
+    final documents = controller.documentsForCar(car.id);
+    final history = controller.jobsForCar(car.id);
+    final photos = controller.photoUpdatesForCar(car.id);
+    final approvals = _approvalRequestsForJob(controller, job);
+    final pendingApprovals = _pendingApprovalRequestsForJob(controller, job);
+    final mapUri = _pickupMapUriForJob(job);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.80,
+              child: ListView(
+                children: [
+                  Row(
+                    children: [
+                      AppImage(
+                        path: car.imageUrl,
+                        width: 84,
+                        height: 64,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              car.carNumber,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text('${customer?.name ?? '-'} | ${car.model}'),
+                            Text(
+                              customer?.phone ?? '-',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _StaffCarStateCard(job: job),
+                  const SizedBox(height: 12),
+                  _StaffAssignedPeopleStrip(job: job),
+                  const SizedBox(height: 12),
+                  _StaffPickupInfoCard(job: job),
+                  const SizedBox(height: 12),
+                  if (pendingApprovals.isNotEmpty) ...[
+                    Text(
+                      'Approval messages',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    ...pendingApprovals.map(_StaffApprovalMessageTile.new),
+                    const SizedBox(height: 12),
+                  ],
+                  GearboxActionGrid(
+                    children: [
+                      if (widget.isMasterMechanic) ...[
+                        AutomotiveControlButton(
+                          icon: Icons.search_rounded,
+                          label: 'Inspect',
+                          active: job.status == JobStatus.underInspection,
+                          onPressed:
+                              job.status == JobStatus.received ||
+                                  job.status == JobStatus.underInspection
+                              ? () => _setStatus(
+                                  context,
+                                  controller,
+                                  job,
+                                  JobStatus.underInspection,
+                                  '${widget.staff.name} started inspection.',
+                                )
+                              : null,
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.assignment_rounded,
+                          label: 'Job card',
+                          onPressed: () =>
+                              widget.onCreateJobCard?.call(job, widget.staff),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.group_add_outlined,
+                          label: 'Mechanics',
+                          onPressed: () =>
+                              widget.onProposeTeam?.call(job, widget.staff),
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.task_alt_rounded,
+                          label: 'Complete',
+                          active: job.status == JobStatus.completed,
+                          onPressed: job.status == JobStatus.workInProgress
+                              ? () => _setStatus(
+                                  context,
+                                  controller,
+                                  job,
+                                  JobStatus.completed,
+                                  '${widget.staff.name} marked work complete.',
+                                )
+                              : null,
+                        ),
+                      ] else ...[
+                        AutomotiveControlButton(
+                          icon: Icons.local_shipping_outlined,
+                          label: 'Pickup done',
+                          active: job.pickupState == PickupState.completed,
+                          onPressed:
+                              _isPickupAssignedToStaff(job) &&
+                                  job.status == JobStatus.pickupScheduled
+                              ? () => _markPickupDone(context, controller, job)
+                              : null,
+                        ),
+                        AutomotiveControlButton(
+                          icon: Icons.task_alt_rounded,
+                          label: 'Task done',
+                          onPressed: job.status == JobStatus.workInProgress
+                              ? () {
+                                  controller.sendStatusUpdate(
+                                    job.id,
+                                    '${widget.staff.name} marked assigned work done.',
+                                  );
+                                  Navigator.of(context).pop();
+                                }
+                              : null,
+                        ),
+                      ],
+                      AutomotiveControlButton(
+                        icon: Icons.approval_outlined,
+                        label: 'Approval',
+                        active: pendingApprovals.isNotEmpty,
+                        onPressed: () =>
+                            widget.onRequestApproval(job, widget.staff),
+                      ),
+                      AutomotiveControlButton(
+                        icon: Icons.notifications_active_outlined,
+                        label: 'Update',
+                        onPressed: () => widget.onSendUpdate(job, widget.staff),
+                      ),
+                      AutomotiveControlButton(
+                        icon: Icons.photo_camera_outlined,
+                        label: 'Photo',
+                        onPressed: () => widget.onAddPhoto(car, widget.staff),
+                      ),
+                      if (widget.isMasterMechanic)
+                        AutomotiveControlButton(
+                          icon: Icons.handyman_outlined,
+                          label: 'Work photo',
+                          active: job.status == JobStatus.workInProgress,
+                          onPressed: () => widget.onAddPhoto(
+                            car,
+                            widget.staff,
+                            status: JobStatus.workInProgress,
+                          ),
+                        ),
+                      if (mapUri != null)
+                        AutomotiveControlButton(
+                          icon: Icons.map_outlined,
+                          label: 'Map',
+                          onPressed: () => launchUrl(
+                            mapUri,
+                            mode: LaunchMode.externalApplication,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Approval messages',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  if (approvals.isEmpty)
+                    const _StaffEmptyCard(message: 'No approval messages yet.'),
+                  ...approvals.map(_StaffApprovalMessageTile.new),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Job history',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  ...history.map(
+                    (item) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: const Icon(Icons.timeline_rounded),
+                      title: Text(item.status.label),
+                      subtitle: Text(
+                        'ETA ${formatDateTime(item.expectedCompletion)}',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Documents',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  if (documents.isEmpty)
+                    const _StaffEmptyCard(message: 'No documents yet.'),
+                  ...documents.map(
+                    (document) => _StaffRequestTile(
+                      title: document.title,
+                      subtitle:
+                          '${document.type.label} | ${_approvalStateLabel(document.approvalState)} | ${formatCurrency(document.total)}',
+                      icon: Icons.description_outlined,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Photos',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  if (photos.isEmpty)
+                    const _StaffEmptyCard(message: 'No photos yet.'),
+                  ...photos
+                      .take(4)
+                      .map(
+                        (photo) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          leading: AppImage(
+                            path: photo.imagePath,
+                            width: 48,
+                            height: 38,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          title: Text(photo.caption),
+                          subtitle: Text(formatDateTime(photo.createdAt)),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
-    final jobs = controller.jobsForStaff(staff.id);
-    final approvalMessages =
-        controller.workApprovalRequests
-            .where((request) => request.staffId == staff.id)
-            .toList()
-          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
-    final jobCards = isMasterMechanic
+    final jobs = _visibleJobs(controller);
+    final allJobs = controller.jobsForStaff(widget.staff.id);
+    final approvalMessages = allJobs
+        .expand((job) => _approvalRequestsForJob(controller, job))
+        .toList();
+    final jobCards = widget.isMasterMechanic
         ? jobs
               .expand((job) => controller.documentsForCar(job.carId))
               .where((document) => document.type == DocumentType.jobCard)
@@ -916,94 +1569,169 @@ class _StaffCarsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (jobs.isEmpty)
-          const _StaffEmptyCard(message: 'No car assignments yet.'),
-        ...jobs.map((job) {
-          final car = controller.carForJob(job);
-          final customer = car == null
-              ? null
-              : controller.customerForCar(car.id);
-          final workRequests = controller.workRequestsForJob(job.id);
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      if (car != null)
-                        AppImage(
-                          path: car.imageUrl,
-                          width: 76,
-                          height: 58,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      if (car != null) const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+        Text('Car profiles', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        TextFormField(
+          initialValue: _searchQuery,
+          onChanged: (value) => setState(() => _searchQuery = value),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search_rounded),
+            labelText: 'Search cars, customers, approvals',
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<_StaffCarFilter>(
+                initialValue: _filter,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: _StaffCarFilter.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Row(
                           children: [
-                            Text(
-                              car?.carNumber ?? 'Assigned car',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              '${customer?.name ?? 'Customer'} | ${job.status.label}',
-                              style: Theme.of(context).textTheme.bodySmall,
+                            Icon(value.icon, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                value.label,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  HorizontalServiceTimeline(status: job.status, compact: true),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _filter = value);
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<_StaffCarSort>(
+                initialValue: _sort,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Sort'),
+                items: _StaffCarSort.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(
+                          value.label,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _sort = value);
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (jobs.isEmpty)
+          const _StaffEmptyCard(message: 'No car profiles match this view.'),
+        ...jobs.map((job) {
+          final car = controller.carForJob(job);
+          if (car == null) return const SizedBox.shrink();
+          final customer = controller.customerForCar(car.id);
+          final documents = controller.documentsForCar(car.id);
+          final pendingApprovals = _pendingApprovalRequestsForJob(
+            controller,
+            job,
+          );
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _showCarDetail(context, controller, job),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (isMasterMechanic) ...[
-                        OutlinedButton.icon(
-                          onPressed: () => onProposeTeam?.call(job, staff),
-                          icon: const Icon(Icons.group_add_outlined),
-                          label: const Text('Mechanics'),
-                        ),
-                        FilledButton.icon(
-                          onPressed: () => onCreateJobCard?.call(job, staff),
-                          icon: const Icon(Icons.assignment_rounded),
-                          label: const Text('Job card'),
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AppImage(
+                            path: car.imageUrl,
+                            width: 76,
+                            height: 58,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        car.carNumber,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                    ),
+                                    if (pendingApprovals.isNotEmpty)
+                                      _StaffApprovalBadge(
+                                        count: pendingApprovals.length,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${customer?.name ?? '-'} | ${car.model}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 10),
+                                HorizontalServiceTimeline(
+                                  status: job.status,
+                                  compact: true,
+                                ),
+                                const SizedBox(height: 8),
+                                _StaffAssignedPeopleStrip(job: job),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    _StaffMetaChip(
+                                      icon: _statusIcon(job),
+                                      label: job.status.label,
+                                    ),
+                                    _StaffMetaChip(
+                                      icon: Icons.description_outlined,
+                                      label: '${documents.length} docs',
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.chevron_right_rounded),
+                        ],
+                      ),
+                      if (pendingApprovals.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _StaffApprovalPreview(requests: pendingApprovals),
                       ],
-                      OutlinedButton.icon(
-                        onPressed: () => onRequestApproval(job, staff),
-                        icon: const Icon(Icons.approval_outlined),
-                        label: const Text('Approval'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => onSendUpdate(job, staff),
-                        icon: const Icon(Icons.notifications_active_outlined),
-                        label: const Text('Update'),
-                      ),
                     ],
                   ),
-                  if (workRequests.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    ...workRequests
-                        .take(2)
-                        .map(
-                          (request) => _StaffRequestTile(
-                            title: request.title,
-                            subtitle:
-                                '${request.status.label}${request.forwardedToCustomer ? ' | Customer' : ''}',
-                            icon: Icons.approval_outlined,
-                          ),
-                        ),
-                  ],
-                ],
+                ),
               ),
             ),
           );
@@ -1016,19 +1744,8 @@ class _StaffCarsTab extends StatelessWidget {
         const SizedBox(height: 8),
         if (approvalMessages.isEmpty)
           const _StaffEmptyCard(message: 'No approval messages yet.'),
-        ...approvalMessages.map((request) {
-          final job = jobs
-              .where((item) => item.id == request.jobId)
-              .firstOrNull;
-          final car = job == null ? null : controller.carForJob(job);
-          return _StaffRequestTile(
-            title: request.title,
-            subtitle:
-                '${request.status.label} | ${car?.carNumber ?? 'Assigned car'} | ${request.message}',
-            icon: _requestStatusIcon(request.status),
-          );
-        }),
-        if (isMasterMechanic) ...[
+        ...approvalMessages.map(_StaffApprovalMessageTile.new),
+        if (widget.isMasterMechanic) ...[
           const SizedBox(height: 16),
           Text('Job cards', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -1044,6 +1761,413 @@ class _StaffCarsTab extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _StaffCarStateCard extends StatelessWidget {
+  const _StaffCarStateCard({required this.job});
+
+  final ServiceJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.route_rounded, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  job.status.label,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          HorizontalServiceTimeline(status: job.status),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffPickupInfoCard extends StatelessWidget {
+  const _StaffPickupInfoCard({required this.job});
+
+  final ServiceJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final mapUri = _pickupMapUriForJob(job);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.local_shipping_outlined, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Pickup ${job.pickupState.label}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Time ${formatDateTime(job.pickupTime)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            'Person ${job.pickupPersonName == null || job.pickupPersonName!.isEmpty ? 'Not assigned' : job.pickupPersonName}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (job.pickupAddress != null && job.pickupAddress!.isNotEmpty)
+            Text(
+              'Address ${job.pickupAddress}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          if (job.pickupPhotoPath != null &&
+              job.pickupPhotoPath!.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            AppImage(
+              path: job.pickupPhotoPath!,
+              width: double.infinity,
+              height: 124,
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ],
+          if (mapUri != null) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  launchUrl(mapUri, mode: LaunchMode.externalApplication),
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Open map'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffAssignedPeopleStrip extends StatelessWidget {
+  const _StaffAssignedPeopleStrip({required this.job});
+
+  final ServiceJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.read(context);
+    final people = _assignedPeople(controller, job);
+    if (people.isEmpty) {
+      return const _StaffMetaChip(
+        icon: Icons.person_off_outlined,
+        label: 'No person assigned',
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: people
+          .map(
+            (person) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppPalette.soft,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppPalette.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  MessengerAvatar(
+                    path: person.profileImagePath,
+                    initials: _initials(person.name),
+                    radius: 13,
+                  ),
+                  const SizedBox(width: 7),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        person.name,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      Text(
+                        person.roleLabel,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _StaffAssignedPerson {
+  const _StaffAssignedPerson({
+    required this.name,
+    required this.roleLabel,
+    this.profileImagePath,
+  });
+
+  final String name;
+  final String roleLabel;
+  final String? profileImagePath;
+}
+
+List<_StaffAssignedPerson> _assignedPeople(
+  AppController controller,
+  ServiceJob job,
+) {
+  final people = <_StaffAssignedPerson>[];
+  final seen = <String>{};
+
+  void addStaff(String staffId, String roleLabel) {
+    final staff = controller.staffById(staffId);
+    if (staff == null || !seen.add(staff.id)) return;
+    people.add(
+      _StaffAssignedPerson(
+        name: staff.name,
+        roleLabel: roleLabel,
+        profileImagePath: staff.profileImagePath,
+      ),
+    );
+  }
+
+  if (job.masterMechanicId != null && job.masterMechanicId!.isNotEmpty) {
+    addStaff(job.masterMechanicId!, 'Master Mechanic');
+  }
+  for (final mechanicId in job.mechanicIds) {
+    addStaff(mechanicId, 'Mechanic');
+  }
+  if (job.pickupPersonName != null && job.pickupPersonName!.isNotEmpty) {
+    final matchedStaff = controller.staffProfiles
+        .where(
+          (staff) =>
+              staff.name.toLowerCase() == job.pickupPersonName!.toLowerCase() ||
+              staff.phone == job.pickupPersonPhone,
+        )
+        .firstOrNull;
+    final key = matchedStaff?.id ?? 'pickup-${job.pickupPersonName}';
+    if (seen.add(key)) {
+      people.add(
+        _StaffAssignedPerson(
+          name: job.pickupPersonName!,
+          roleLabel: 'Pickup',
+          profileImagePath: matchedStaff?.profileImagePath,
+        ),
+      );
+    }
+  }
+  return people;
+}
+
+String _initials(String name) {
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) return 'F';
+  if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
+      .toUpperCase();
+}
+
+class _StaffMetaChip extends StatelessWidget {
+  const _StaffMetaChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15),
+          const SizedBox(width: 5),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffApprovalBadge extends StatelessWidget {
+  const _StaffApprovalBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppPalette.red,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.mark_chat_unread_outlined,
+            color: AppPalette.white,
+            size: 14,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            count.toString(),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppPalette.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffApprovalPreview extends StatelessWidget {
+  const _StaffApprovalPreview({required this.requests});
+
+  final List<WorkApprovalRequest> requests;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = requests.first;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.mark_chat_unread_outlined),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${requests.length} approval message${requests.length == 1 ? '' : 's'}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${latest.title} | ${latest.status.label} | ${formatShortDate(latest.createdAt)}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffApprovalMessageTile extends StatelessWidget {
+  const _StaffApprovalMessageTile(this.request);
+
+  final WorkApprovalRequest request;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = FlywheelsScope.read(context);
+    final staff = controller.staffById(request.staffId);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_requestStatusIcon(request.status)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  request.title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              _StaffMetaChip(
+                icon: _requestStatusIcon(request.status),
+                label: request.forwardedToCustomer
+                    ? 'Sent to customer'
+                    : request.status.label,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${staff?.name ?? 'Staff'}: ${request.message}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (request.ownerResponse != null &&
+              request.ownerResponse!.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              request.ownerResponse!,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (request.photoPath != null) ...[
+            const SizedBox(height: 10),
+            AppImage(
+              path: request.photoPath!,
+              width: double.infinity,
+              height: 120,
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1227,10 +2351,31 @@ class _StaffJobTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.directions_car_outlined),
       title: Text(car?.carNumber ?? 'Assigned car'),
-      subtitle: Text('${car?.model ?? '-'} | ${job.status.label}'),
+      subtitle: Text(
+        '${car?.model ?? '-'} | ${job.status.label}'
+        '${job.pickupAddress == null || job.pickupAddress!.isEmpty ? '' : ' | ${job.pickupAddress}'}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: const Icon(Icons.chevron_right_rounded),
     );
   }
+}
+
+Uri? _pickupMapUriForJob(ServiceJob job) {
+  if (job.pickupMapUrl?.trim().isNotEmpty == true) {
+    return Uri.tryParse(job.pickupMapUrl!.trim());
+  }
+  if (job.hasPickupCoordinates) {
+    return GoogleMapsLinkService.mapUriForCoordinates(
+      latitude: job.pickupLatitude!,
+      longitude: job.pickupLongitude!,
+    );
+  }
+  if (job.pickupAddress?.trim().isNotEmpty == true) {
+    return GoogleMapsLinkService.mapUriForAddress(job.pickupAddress!.trim());
+  }
+  return null;
 }
 
 class _StaffMetricCard extends StatelessWidget {

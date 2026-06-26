@@ -5,17 +5,25 @@ import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/screens/shared/document_pdf_viewer_page.dart';
 import 'package:flywheels/screens/shared/wheels_marketplace_tab.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
+import 'package:flywheels/services/google_maps_link_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
 import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
 import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
+import 'package:flywheels/widgets/car_status_tracker.dart';
 import 'package:flywheels/widgets/customer_car_details_fields.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+const _defaultPickupLatitude = 17.448294;
+const _defaultPickupLongitude = 78.391487;
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key});
@@ -245,74 +253,275 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     ).whenComplete(concernController.dispose);
   }
 
-  Future<String?> _showGoogleMapsLocationPicker(
+  Future<_PickupLocationDraft?> _showGoogleMapsLocationPicker(
     BuildContext context,
     CarProfile car,
-  ) {
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Pick pickup location'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 170,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: AppPalette.soft,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppPalette.border),
-                ),
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: CustomPaint(painter: _MapPickerGridPainter()),
-                    ),
-                    const Center(
-                      child: Icon(
-                        Icons.location_pin,
-                        color: AppPalette.red,
-                        size: 42,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Use the map pin for ${car.carNumber}, or continue with manual address entry.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Manual entry'),
-          ),
-          OutlinedButton(
-            onPressed: () async {
-              final uri = Uri.parse(
-                'https://www.google.com/maps/search/?api=1&query=current%20location',
-              );
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
-            child: const Text('Open Google Maps'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(
-              context,
-            ).pop('Google Maps pin selected near current location'),
-            child: const Text('Use pin'),
-          ),
-        ],
-      ),
+    _PickupLocationDraft? initialLocation,
+  ) async {
+    var latitude = initialLocation?.latitude ?? _defaultPickupLatitude;
+    var longitude = initialLocation?.longitude ?? _defaultPickupLongitude;
+    var locating = false;
+    String? errorText;
+    final latitudeController = TextEditingController(
+      text: initialLocation?.latitude == null
+          ? ''
+          : initialLocation!.latitude!.toStringAsFixed(6),
     );
+    final longitudeController = TextEditingController(
+      text: initialLocation?.longitude == null
+          ? ''
+          : initialLocation!.longitude!.toStringAsFixed(6),
+    );
+
+    void syncCoordinateFields() {
+      latitudeController.text = latitude.toStringAsFixed(6);
+      longitudeController.text = longitude.toStringAsFixed(6);
+    }
+
+    final result = await showModalBottomSheet<_PickupLocationDraft>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> useCurrentLocation() async {
+              setSheetState(() {
+                locating = true;
+                errorText = null;
+              });
+              try {
+                final serviceEnabled =
+                    await Geolocator.isLocationServiceEnabled();
+                if (!serviceEnabled) {
+                  throw const _PickupLocationException(
+                    'Location services are off.',
+                  );
+                }
+
+                var permission = await Geolocator.checkPermission();
+                if (permission == LocationPermission.denied) {
+                  permission = await Geolocator.requestPermission();
+                }
+                if (permission == LocationPermission.denied ||
+                    permission == LocationPermission.deniedForever) {
+                  throw const _PickupLocationException(
+                    'Location permission was not granted.',
+                  );
+                }
+
+                final position = await Geolocator.getCurrentPosition(
+                  locationSettings: const LocationSettings(
+                    accuracy: LocationAccuracy.high,
+                  ),
+                );
+                if (!context.mounted) return;
+                setSheetState(() {
+                  latitude = position.latitude;
+                  longitude = position.longitude;
+                  locating = false;
+                  syncCoordinateFields();
+                });
+              } on _PickupLocationException catch (error) {
+                if (!context.mounted) return;
+                setSheetState(() {
+                  locating = false;
+                  errorText = error.message;
+                });
+              } catch (_) {
+                if (!context.mounted) return;
+                setSheetState(() {
+                  locating = false;
+                  errorText = 'Could not read the current location.';
+                });
+              }
+            }
+
+            void applyManualCoordinates() {
+              final parsedLatitude = double.tryParse(
+                latitudeController.text.trim(),
+              );
+              final parsedLongitude = double.tryParse(
+                longitudeController.text.trim(),
+              );
+              if (parsedLatitude == null ||
+                  parsedLongitude == null ||
+                  parsedLatitude < -90 ||
+                  parsedLatitude > 90 ||
+                  parsedLongitude < -180 ||
+                  parsedLongitude > 180) {
+                setSheetState(() {
+                  errorText = 'Enter valid latitude and longitude values.';
+                });
+                return;
+              }
+              setSheetState(() {
+                latitude = parsedLatitude;
+                longitude = parsedLongitude;
+                errorText = null;
+              });
+            }
+
+            final mapUrl = GoogleMapsLinkService.mapUrlForCoordinates(
+              latitude: latitude,
+              longitude: longitude,
+            );
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  16,
+                  20,
+                  MediaQuery.of(context).viewInsets.bottom + 20,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Pickup location',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  car.carNumber,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton.outlined(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      _PickupMapPreview(
+                        latitude: latitude,
+                        longitude: longitude,
+                        interactive: true,
+                        onTap: (position) {
+                          setSheetState(() {
+                            latitude = position.latitude;
+                            longitude = position.longitude;
+                            errorText = null;
+                            syncCoordinateFields();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: locating ? null : useCurrentLocation,
+                              icon: Icon(
+                                locating
+                                    ? Icons.hourglass_top_rounded
+                                    : Icons.my_location_rounded,
+                              ),
+                              label: Text(
+                                locating ? 'Locating' : 'Use current',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => launchUrl(
+                                Uri.parse(mapUrl),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                              icon: const Icon(Icons.map_outlined),
+                              label: const Text('Open Maps'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          errorText!,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppPalette.red),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: latitudeController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    signed: true,
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Latitude',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: longitudeController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    signed: true,
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Longitude',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: applyManualCoordinates,
+                        icon: const Icon(Icons.pin_drop_outlined),
+                        label: const Text('Apply coordinates'),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).pop(
+                              _PickupLocationDraft(
+                                latitude: latitude,
+                                longitude: longitude,
+                                mapUrl: mapUrl,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.location_on_outlined),
+                          label: const Text('Use this location'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    latitudeController.dispose();
+    longitudeController.dispose();
+    return result;
   }
 
   Future<void> _showPickupScheduler(
@@ -325,7 +534,16 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     DateTime pickupTime =
         existingJob?.pickupTime ?? DateTime.now().add(const Duration(hours: 3));
     bool locationAccessGranted = existingJob?.locationAccessGranted ?? false;
-    bool mapsLocationSelected = false;
+    var selectedLocation =
+        existingJob?.hasPickupCoordinates == true ||
+            existingJob?.pickupMapUrl?.trim().isNotEmpty == true
+        ? _PickupLocationDraft(
+            latitude: existingJob?.pickupLatitude,
+            longitude: existingJob?.pickupLongitude,
+            mapUrl: existingJob?.pickupMapUrl,
+          )
+        : null;
+    String? pickupPhotoPath = existingJob?.pickupPhotoPath;
     addressController.text = existingJob?.pickupAddress ?? '';
 
     await showModalBottomSheet<void>(
@@ -334,174 +552,222 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                20,
-                20,
-                MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    existingJob?.pickupRequired == true
-                        ? 'Reschedule pickup'
-                        : 'Schedule pickup',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Choose a pickup time for ${car.carNumber} and confirm whether the garage can access your location.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Pickup time'),
-                    subtitle: Text(formatDateTime(pickupTime)),
-                    trailing: OutlinedButton(
-                      onPressed: () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: pickupTime,
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(
-                            const Duration(days: 60),
-                          ),
-                        );
-                        if (date == null || !context.mounted) return;
-                        final time = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay.fromDateTime(pickupTime),
-                        );
-                        if (time == null) return;
-                        setSheetState(() {
-                          pickupTime = DateTime(
-                            date.year,
-                            date.month,
-                            date.day,
-                            time.hour,
-                            time.minute,
-                          );
-                        });
-                      },
-                      child: const Text('Change'),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
+            Future<void> pickVehiclePhoto(ImageSource source) async {
+              final image = await _picker.pickImage(
+                source: source,
+                imageQuality: 85,
+              );
+              if (image == null || !context.mounted) return;
+              setSheetState(() => pickupPhotoPath = image.path);
+            }
+
+            Future<void> pickDate() async {
+              final date = await showDatePicker(
+                context: context,
+                initialDate: pickupTime,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 60)),
+              );
+              if (date == null || !context.mounted) return;
+              setSheetState(() {
+                pickupTime = DateTime(
+                  date.year,
+                  date.month,
+                  date.day,
+                  pickupTime.hour,
+                  pickupTime.minute,
+                );
+              });
+            }
+
+            Future<void> pickTime() async {
+              final time = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(pickupTime),
+              );
+              if (time == null || !context.mounted) return;
+              setSheetState(() {
+                pickupTime = DateTime(
+                  pickupTime.year,
+                  pickupTime.month,
+                  pickupTime.day,
+                  time.hour,
+                  time.minute,
+                );
+              });
+            }
+
+            void applySlot(int hour, int minute) {
+              final now = DateTime.now();
+              var slot = DateTime(
+                pickupTime.year,
+                pickupTime.month,
+                pickupTime.day,
+                hour,
+                minute,
+              );
+              if (slot.isBefore(now.add(const Duration(minutes: 30)))) {
+                slot = slot.add(const Duration(days: 1));
+              }
+              setSheetState(() => pickupTime = slot);
+            }
+
+            Future<void> pickMapLocation() async {
+              final location = await _showGoogleMapsLocationPicker(
+                context,
+                car,
+                selectedLocation,
+              );
+              if (location == null || !context.mounted) return;
+              setSheetState(() {
+                selectedLocation = location;
+                locationAccessGranted = true;
+              });
+            }
+
+            Future<void> openMaps() async {
+              final location = selectedLocation;
+              Uri? uri;
+              if (location?.hasCoordinates == true) {
+                uri = GoogleMapsLinkService.mapUriForCoordinates(
+                  latitude: location!.latitude!,
+                  longitude: location.longitude!,
+                );
+              } else if (addressController.text.trim().isNotEmpty) {
+                uri = GoogleMapsLinkService.mapUriForAddress(
+                  addressController.text.trim(),
+                );
+              }
+              if (uri == null) return;
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  16,
+                  20,
+                  MediaQuery.of(context).viewInsets.bottom + 20,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final selectedAddress =
-                                await _showGoogleMapsLocationPicker(
-                                  context,
-                                  car,
-                                );
-                            if (selectedAddress == null) return;
-                            if (!context.mounted) return;
-                            setSheetState(() {
-                              mapsLocationSelected = true;
-                              locationAccessGranted = true;
-                              addressController.text = selectedAddress;
-                            });
-                          },
-                          icon: const Icon(Icons.map_outlined),
-                          label: const Text('Google Maps picker'),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  existingJob?.pickupRequired == true
+                                      ? 'Reschedule pickup'
+                                      : 'Schedule pickup',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${car.carNumber} | ${car.model}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton.outlined(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setSheetState(() {
-                              mapsLocationSelected = false;
-                              if (addressController.text.startsWith(
-                                'Google Maps pin selected',
-                              )) {
-                                addressController.clear();
-                              }
-                            });
+                      const SizedBox(height: 16),
+                      _PickupVehiclePhotoSection(
+                        car: car,
+                        photoPath: pickupPhotoPath,
+                        onCamera: () => pickVehiclePhoto(ImageSource.camera),
+                        onGallery: () => pickVehiclePhoto(ImageSource.gallery),
+                        onRemove: pickupPhotoPath == null
+                            ? null
+                            : () => setSheetState(() => pickupPhotoPath = null),
+                      ),
+                      const SizedBox(height: 12),
+                      _PickupScheduleSection(
+                        pickupTime: pickupTime,
+                        onPickDate: pickDate,
+                        onPickTime: pickTime,
+                        onSlotSelected: applySlot,
+                      ),
+                      const SizedBox(height: 12),
+                      _PickupLocationSection(
+                        addressController: addressController,
+                        location: selectedLocation,
+                        locationAccessGranted: locationAccessGranted,
+                        onLocationAccessChanged: (value) =>
+                            setSheetState(() => locationAccessGranted = value),
+                        onPickMap: pickMapLocation,
+                        onOpenMaps: openMaps,
+                        onClearMap: selectedLocation == null
+                            ? null
+                            : () => setSheetState(() {
+                                selectedLocation = null;
+                                locationAccessGranted = false;
+                              }),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () async {
+                            final mapUrl = selectedLocation?.mapUrl;
+                            controller.requestPickupForCar(
+                              car.id,
+                              pickupTime: pickupTime,
+                              pickupAddress: addressController.text.trim(),
+                              pickupLatitude: selectedLocation?.latitude,
+                              pickupLongitude: selectedLocation?.longitude,
+                              pickupMapUrl: mapUrl,
+                              pickupPhotoPath: pickupPhotoPath,
+                              locationAccessGranted: locationAccessGranted,
+                            );
+                            final sent = await WhatsappShareService.share(
+                              phone: controller.ownerUser.phone,
+                              message: controller.buildPickupWhatsappMessage(
+                                car,
+                                pickupTime: pickupTime,
+                                pickupAddress: addressController.text.trim(),
+                                pickupLatitude: selectedLocation?.latitude,
+                                pickupLongitude: selectedLocation?.longitude,
+                                pickupMapUrl: mapUrl,
+                                pickupPhotoPath: pickupPhotoPath,
+                                locationAccessGranted: locationAccessGranted,
+                              ),
+                            );
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    sent
+                                        ? 'Pickup scheduled and WhatsApp opened.'
+                                        : 'Pickup scheduled. WhatsApp could not be opened.',
+                                  ),
+                                ),
+                              );
+                            }
                           },
-                          icon: const Icon(Icons.edit_location_alt_outlined),
-                          label: const Text('Manual entry'),
+                          icon: const Icon(Icons.local_shipping_outlined),
+                          label: Text(
+                            existingJob?.pickupRequired == true
+                                ? 'Reschedule pickup'
+                                : 'Schedule pickup',
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  if (mapsLocationSelected) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Maps pin selected. You can still edit the address below.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: addressController,
-                    minLines: 2,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Pickup address',
-                      hintText: 'Flat, street, area, landmark',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: locationAccessGranted,
-                    activeThumbColor: AppPalette.red,
-                    title: const Text('Allow location access for pickup'),
-                    subtitle: const Text(
-                      'We will share this consent with the garage for route planning.',
-                    ),
-                    onChanged: (value) =>
-                        setSheetState(() => locationAccessGranted = value),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () async {
-                        controller.requestPickupForCar(
-                          car.id,
-                          pickupTime: pickupTime,
-                          pickupAddress: addressController.text.trim(),
-                          locationAccessGranted: locationAccessGranted,
-                        );
-                        final sent = await WhatsappShareService.share(
-                          phone: controller.ownerUser.phone,
-                          message: controller.buildPickupWhatsappMessage(
-                            car,
-                            pickupTime: pickupTime,
-                            pickupAddress: addressController.text.trim(),
-                            locationAccessGranted: locationAccessGranted,
-                          ),
-                        );
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                sent
-                                    ? 'Pickup scheduled and WhatsApp opened.'
-                                    : 'Pickup scheduled. WhatsApp could not be opened.',
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                      child: Text(
-                        existingJob?.pickupRequired == true
-                            ? 'Reschedule pickup'
-                            : 'Schedule pickup',
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             );
           },
@@ -1098,7 +1364,448 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   }
 }
 
-class _MapPickerGridPainter extends CustomPainter {
+class _PickupLocationException implements Exception {
+  const _PickupLocationException(this.message);
+
+  final String message;
+}
+
+class _PickupLocationDraft {
+  const _PickupLocationDraft({
+    required this.latitude,
+    required this.longitude,
+    required this.mapUrl,
+  });
+
+  final double? latitude;
+  final double? longitude;
+  final String? mapUrl;
+
+  bool get hasCoordinates => latitude != null && longitude != null;
+}
+
+class _PickupPlannerSection extends StatelessWidget {
+  const _PickupPlannerSection({
+    required this.icon,
+    required this.title,
+    required this.child,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppPalette.soft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _PickupVehiclePhotoSection extends StatelessWidget {
+  const _PickupVehiclePhotoSection({
+    required this.car,
+    required this.photoPath,
+    required this.onCamera,
+    required this.onGallery,
+    required this.onRemove,
+  });
+
+  final CarProfile car;
+  final String? photoPath;
+  final VoidCallback onCamera;
+  final VoidCallback onGallery;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final previewPath = photoPath ?? car.imageUrl;
+    return _PickupPlannerSection(
+      icon: Icons.photo_camera_outlined,
+      title: 'Pickup car photo',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppImage(
+                path: previewPath,
+                width: 104,
+                height: 76,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      photoPath == null
+                          ? 'Using garage profile photo'
+                          : 'Photo ready',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      car.carNumber,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onCamera,
+                icon: const Icon(Icons.photo_camera_outlined),
+                label: const Text('Camera'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onGallery,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Gallery'),
+              ),
+              if (onRemove != null)
+                IconButton.outlined(
+                  tooltip: 'Remove pickup photo',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PickupScheduleSection extends StatelessWidget {
+  const _PickupScheduleSection({
+    required this.pickupTime,
+    required this.onPickDate,
+    required this.onPickTime,
+    required this.onSlotSelected,
+  });
+
+  final DateTime pickupTime;
+  final VoidCallback onPickDate;
+  final VoidCallback onPickTime;
+  final void Function(int hour, int minute) onSlotSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PickupPlannerSection(
+      icon: Icons.event_available_outlined,
+      title: 'Date and time',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _PickupInfoPill(
+                  icon: Icons.calendar_month_outlined,
+                  label: formatShortDate(pickupTime),
+                  onTap: onPickDate,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _PickupInfoPill(
+                  icon: Icons.schedule_rounded,
+                  label:
+                      '${pickupTime.hour.toString().padLeft(2, '0')}:${pickupTime.minute.toString().padLeft(2, '0')}',
+                  onTap: onPickTime,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('10:00'),
+                selected: pickupTime.hour == 10 && pickupTime.minute == 0,
+                onSelected: (_) => onSlotSelected(10, 0),
+              ),
+              ChoiceChip(
+                label: const Text('14:00'),
+                selected: pickupTime.hour == 14 && pickupTime.minute == 0,
+                onSelected: (_) => onSlotSelected(14, 0),
+              ),
+              ChoiceChip(
+                label: const Text('18:00'),
+                selected: pickupTime.hour == 18 && pickupTime.minute == 0,
+                onSelected: (_) => onSlotSelected(18, 0),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PickupLocationSection extends StatelessWidget {
+  const _PickupLocationSection({
+    required this.addressController,
+    required this.location,
+    required this.locationAccessGranted,
+    required this.onLocationAccessChanged,
+    required this.onPickMap,
+    required this.onOpenMaps,
+    required this.onClearMap,
+  });
+
+  final TextEditingController addressController;
+  final _PickupLocationDraft? location;
+  final bool locationAccessGranted;
+  final ValueChanged<bool> onLocationAccessChanged;
+  final VoidCallback onPickMap;
+  final VoidCallback onOpenMaps;
+  final VoidCallback? onClearMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasLocation =
+        location?.hasCoordinates == true ||
+        location?.mapUrl?.trim().isNotEmpty == true;
+    return _PickupPlannerSection(
+      icon: Icons.location_on_outlined,
+      title: 'Pickup location',
+      trailing: hasLocation
+          ? IconButton.outlined(
+              tooltip: 'Clear map pin',
+              onPressed: onClearMap,
+              icon: const Icon(Icons.location_off_outlined),
+            )
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _PickupMapPreview(
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+            interactive: false,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onPickMap,
+                  icon: const Icon(Icons.my_location_rounded),
+                  label: const Text('Set pin'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onOpenMaps,
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Open Maps'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: addressController,
+            minLines: 2,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Pickup address',
+              hintText: 'Flat, street, area, landmark',
+            ),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: locationAccessGranted,
+            activeThumbColor: AppPalette.red,
+            title: const Text('Share pickup location with garage'),
+            subtitle: const Text('Google Maps link included for routing.'),
+            onChanged: onLocationAccessChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PickupInfoPill extends StatelessWidget {
+  const _PickupInfoPill({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppPalette.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppPalette.border),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 19),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PickupMapPreview extends StatelessWidget {
+  const _PickupMapPreview({
+    required this.latitude,
+    required this.longitude,
+    required this.interactive,
+    this.onTap,
+  });
+
+  final double? latitude;
+  final double? longitude;
+  final bool interactive;
+  final ValueChanged<LatLng>? onTap;
+
+  bool get _hasCoordinates => latitude != null && longitude != null;
+
+  @override
+  Widget build(BuildContext context) {
+    final canRenderGoogleMap =
+        _hasCoordinates &&
+        (kIsWeb ||
+            defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+
+    if (canRenderGoogleMap) {
+      final position = LatLng(latitude!, longitude!);
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          height: interactive ? 240 : 150,
+          width: double.infinity,
+          child: GoogleMap(
+            key: ValueKey(
+              'pickup-map-${latitude!.toStringAsFixed(5)}-${longitude!.toStringAsFixed(5)}',
+            ),
+            initialCameraPosition: CameraPosition(
+              target: position,
+              zoom: interactive ? 16 : 14,
+            ),
+            markers: {
+              Marker(
+                markerId: const MarkerId('pickup-location'),
+                position: position,
+              ),
+            },
+            onTap: interactive ? onTap : null,
+            myLocationButtonEnabled: false,
+            myLocationEnabled: false,
+            mapToolbarEnabled: false,
+            zoomControlsEnabled: interactive,
+            compassEnabled: false,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: interactive ? 220 : 150,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppPalette.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppPalette.border),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(child: CustomPaint(painter: _MapGridPainter())),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.location_pin, color: AppPalette.red, size: 38),
+                const SizedBox(height: 6),
+                Text(
+                  _hasCoordinates
+                      ? '${latitude!.toStringAsFixed(5)}, ${longitude!.toStringAsFixed(5)}'
+                      : 'No map pin set',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final roadPaint = Paint()
@@ -1133,7 +1840,7 @@ class _MapPickerGridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _MapPickerGridPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _MapGridPainter oldDelegate) => false;
 }
 
 class _CustomerCarStrip extends StatefulWidget {
@@ -1244,21 +1951,22 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
                         setState(() => _pageIndex = index),
                     itemBuilder: (context, index) {
                       final isAddCard = index == widget.cars.length;
-                      return isAddCard
-                          ? _AddCarCard(onAddCar: widget.onAddCar)
-                          : _CustomerCarCard(
-                              car: widget.cars[index],
-                              statusLabel:
-                                  controller
-                                      .latestJobForCar(widget.cars[index].id)
-                                      ?.status
-                                      .label
-                                      .toUpperCase() ??
-                                  'READY FOR A QUOTATION REQUEST',
-                              isActive:
-                                  widget.cars[index].id == widget.activeCarId,
-                              onSelect: widget.onSelect,
-                            );
+                      if (isAddCard) {
+                        return _AddCarCard(onAddCar: widget.onAddCar);
+                      }
+                      final car = widget.cars[index];
+                      return _CustomerCarCard(
+                        car: car,
+                        statusLabel:
+                            controller
+                                .latestJobForCar(car.id)
+                                ?.status
+                                .label
+                                .toUpperCase() ??
+                            'READY FOR A QUOTATION REQUEST',
+                        isActive: car.id == widget.activeCarId,
+                        onSelect: widget.onSelect,
+                      );
                     },
                   ),
                 ),
@@ -1490,7 +2198,6 @@ class _CustomerHomeTab extends StatelessWidget {
         : controller.latestJobForCar(activeCar!.id);
     final workflowState = job?.workflowState ?? CarWorkflowState.registered;
     final transitInProgress = workflowState.isTransit;
-    final hasGarageWorkflow = workflowState.isInGarage;
     final photos = activeCar == null
         ? const <GaragePhotoUpdate>[]
         : controller.photoUpdatesForCar(activeCar!.id);
@@ -1518,12 +2225,7 @@ class _CustomerHomeTab extends StatelessWidget {
             subtitle: 'Add a car or choose one above to view its timeline.',
           ),
         if (activeCar != null) ...[
-          _CustomerVehicleOverview(
-            car: activeCar!,
-            job: job,
-            documents: documents,
-            photoCount: photos.length,
-          ),
+          GarageServiceTracker(status: job?.status ?? JobStatus.onRoad),
           const SizedBox(height: 12),
           _CustomerNextStepCard(
             car: activeCar!,
@@ -1537,7 +2239,6 @@ class _CustomerHomeTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (transitInProgress && job != null) _PickupStatusCard(job: job),
-          if (hasGarageWorkflow && job != null) _CompactTimelineCard(job: job),
           if (job == null)
             _EmptyStateCard(
               title: activeCar!.carNumber,
@@ -1700,102 +2401,6 @@ class _CustomerHomeTab extends StatelessWidget {
         onPressed: readyForDelivery ? () => onSchedulePickup(car) : null,
       ),
     ];
-  }
-}
-
-class _CustomerVehicleOverview extends StatelessWidget {
-  const _CustomerVehicleOverview({
-    required this.car,
-    required this.job,
-    required this.documents,
-    required this.photoCount,
-  });
-
-  final CarProfile car;
-  final ServiceJob? job;
-  final List<ServiceDocument> documents;
-  final int photoCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final status = job == null ? 'Registered' : job!.workflowState.label;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppPalette.black,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          AppImage(
-            path: car.imageUrl,
-            width: 92,
-            height: 72,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  car.carNumber,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(color: AppPalette.white),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  car.model,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppPalette.white.withValues(alpha: 0.74),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    _CustomerOverviewPill(label: status),
-                    _CustomerOverviewPill(label: '${documents.length} docs'),
-                    _CustomerOverviewPill(label: '$photoCount photos'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CustomerOverviewPill extends StatelessWidget {
-  const _CustomerOverviewPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppPalette.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: AppPalette.white.withValues(alpha: 0.16)),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: AppPalette.white,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
   }
 }
 
@@ -2035,6 +2640,7 @@ class _PickupStatusCard extends StatelessWidget {
     final isDelivery =
         state == CarWorkflowState.deliveryRequested ||
         state == CarWorkflowState.deliveryAssigned;
+    final mapUri = _pickupMapUriForJob(job);
     final assignee = job.pickupPersonName == null
         ? 'Garage will assign a ${isDelivery ? 'delivery' : 'pickup'} person'
         : '${job.pickupPersonName}'
@@ -2072,11 +2678,46 @@ class _PickupStatusCard extends StatelessWidget {
                 job.pickupAddress!,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+            if (job.pickupPhotoPath != null &&
+                job.pickupPhotoPath!.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              AppImage(
+                path: job.pickupPhotoPath!,
+                width: double.infinity,
+                height: 132,
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ],
+            if (mapUri != null) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    launchUrl(mapUri, mode: LaunchMode.externalApplication),
+                icon: const Icon(Icons.map_outlined),
+                label: const Text('Open pickup map'),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+Uri? _pickupMapUriForJob(ServiceJob job) {
+  if (job.pickupMapUrl?.trim().isNotEmpty == true) {
+    return Uri.tryParse(job.pickupMapUrl!.trim());
+  }
+  if (job.hasPickupCoordinates) {
+    return GoogleMapsLinkService.mapUriForCoordinates(
+      latitude: job.pickupLatitude!,
+      longitude: job.pickupLongitude!,
+    );
+  }
+  if (job.pickupAddress?.trim().isNotEmpty == true) {
+    return GoogleMapsLinkService.mapUriForAddress(job.pickupAddress!.trim());
+  }
+  return null;
 }
 
 class _GaragePhotoFeed extends StatelessWidget {
@@ -2774,66 +3415,6 @@ class _CustomerProfileTab extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _CompactTimelineCard extends StatelessWidget {
-  const _CompactTimelineCard({required this.job});
-
-  final ServiceJob job;
-
-  @override
-  Widget build(BuildContext context) {
-    const statuses = JobStatus.values;
-    final activeIndex = statuses.indexOf(job.status);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const LedIndicator(active: true),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Live service status',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Text(
-                  job.status.label,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppPalette.red,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            HorizontalServiceTimeline(status: statuses[activeIndex]),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 6,
-              children: [
-                Text(
-                  'ETA ${formatDateTime(job.expectedCompletion)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  'Pickup ${formatDateTime(job.pickupTime)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
