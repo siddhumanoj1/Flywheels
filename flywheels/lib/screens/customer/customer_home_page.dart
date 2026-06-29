@@ -994,6 +994,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     }
   }
 
+  void _openBuyingChat() {
+    if (_customerChatChannel != ChatChannel.buying) {
+      setState(() => _customerChatChannel = ChatChannel.buying);
+    }
+    _selectTab(3);
+  }
+
   void _handleParentPageChanged(int index) {
     final controller = FlywheelsScope.read(context);
     if (index == 3) {
@@ -1299,7 +1306,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                   onUploadVehicleDocument: (car) =>
                       _showUploadVehicleDocumentSheet(context, car),
                 ),
-                const WheelsMarketplaceTab(),
+                WheelsMarketplaceTab(onBuyingContactStarted: _openBuyingChat),
                 _CustomerChatTab(
                   chatMessageController: _chatMessageController,
                   channel: _customerChatChannel,

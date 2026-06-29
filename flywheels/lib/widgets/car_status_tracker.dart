@@ -5,6 +5,26 @@ import 'package:flywheels/models/app_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+const _firstCheckpointFraction = 0.16;
+const _checkpointSpacingFraction = 0.14;
+const _finishCheckpointIndex = 5;
+
+double _checkpointFraction(int index) {
+  return _firstCheckpointFraction + (_checkpointSpacingFraction * index);
+}
+
+double _checkpointFractionForStatus(JobStatus status) {
+  return switch (status) {
+    JobStatus.pickupDone => _checkpointFraction(0),
+    JobStatus.received => _checkpointFraction(1),
+    JobStatus.underInspection => _checkpointFraction(2),
+    JobStatus.workInProgress => _checkpointFraction(3),
+    JobStatus.completed => _checkpointFraction(4),
+    JobStatus.deliveryScheduled => _checkpointFraction(_finishCheckpointIndex),
+    JobStatus.pickupScheduled || JobStatus.onRoad => _firstCheckpointFraction,
+  };
+}
+
 class GarageServiceTracker extends StatefulWidget {
   const GarageServiceTracker({
     super.key,
@@ -26,6 +46,8 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
   static const _moveDuration = Duration(milliseconds: 1700);
   static const _exitDuration = Duration(milliseconds: 1300);
   static const _enterDuration = Duration(milliseconds: 1600);
+  static const _introStepDuration = Duration(milliseconds: 520);
+  static const _introStepPause = Duration(milliseconds: 90);
 
   late final AnimationController _idleController;
   late final AnimationController _roadController;
@@ -35,14 +57,17 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
   Timer? _wheelStopTimer;
   Timer? _exitTimer;
   Timer? _enterTimer;
+  Timer? _introTimer;
   _CarMotionPhase _motionPhase = _CarMotionPhase.normal;
   Duration _carDuration = Duration.zero;
   Curve _carCurve = Curves.easeInOut;
+  late JobStatus _targetStatus;
 
   @override
   void initState() {
     super.initState();
-    _displayStatus = widget.status;
+    _targetStatus = widget.status;
+    _displayStatus = JobStatus.pickupScheduled;
     _idleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -56,18 +81,18 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
       duration: const Duration(milliseconds: 500),
     );
     _syncMotion(animated: false);
-    if (_displayStatus == JobStatus.deliveryScheduled) {
-      _scheduleDeliveryToOnRoad();
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _playIntroTo(widget.status);
+    });
   }
 
   @override
   void didUpdateWidget(covariant GarageServiceTracker oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.status == oldWidget.status || widget.status == _displayStatus) {
+    if (widget.status == oldWidget.status || widget.status == _targetStatus) {
       return;
     }
-    _setStatus(widget.status, notify: false);
+    _playIntroTo(widget.status);
   }
 
   @override
@@ -80,6 +105,12 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
   }
 
   void _cancelTimers() {
+    _introTimer?.cancel();
+    _cancelMotionTimers();
+    _introTimer = null;
+  }
+
+  void _cancelMotionTimers() {
     _wheelStopTimer?.cancel();
     _exitTimer?.cancel();
     _enterTimer?.cancel();
@@ -88,19 +119,68 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
     _enterTimer = null;
   }
 
-  void _setStatus(JobStatus status, {required bool notify}) {
-    _cancelTimers();
+  void _applyStatus(
+    JobStatus status, {
+    required bool notify,
+    required Duration moveDuration,
+    required bool allowAutoOnRoad,
+    bool updateTarget = true,
+  }) {
+    _cancelMotionTimers();
+    if (updateTarget) _targetStatus = status;
     setState(() {
       _displayStatus = status;
       _motionPhase = _CarMotionPhase.normal;
-      _carDuration = _moveDuration;
+      _carDuration = moveDuration;
       _carCurve = Curves.easeInOut;
     });
     _syncMotion(animated: true);
     if (notify) widget.onStatusChanged?.call(status);
-    if (status == JobStatus.deliveryScheduled) {
-      _scheduleDeliveryToOnRoad();
+    if (allowAutoOnRoad && status == JobStatus.deliveryScheduled) {
+      _scheduleDeliveryToOnRoad(notify: notify);
     }
+  }
+
+  void _playIntroTo(JobStatus status) {
+    _cancelTimers();
+    _targetStatus = status;
+    final targetIndex = JobStatus.values.indexOf(status);
+    final targetIsOnRoad = status == JobStatus.onRoad;
+    final replayTargetIndex = targetIsOnRoad
+        ? JobStatus.values.indexOf(JobStatus.deliveryScheduled)
+        : targetIndex;
+    setState(() {
+      _displayStatus = JobStatus.pickupScheduled;
+      _motionPhase = _CarMotionPhase.normal;
+      _carDuration = Duration.zero;
+      _carCurve = Curves.linear;
+    });
+    _syncMotion(animated: false);
+
+    if (replayTargetIndex <= 0) return;
+
+    var nextIndex = 1;
+    void step() {
+      if (!mounted || _targetStatus != status) return;
+      _applyStatus(
+        JobStatus.values[nextIndex],
+        notify: false,
+        moveDuration: _introStepDuration,
+        allowAutoOnRoad: false,
+        updateTarget: false,
+      );
+      if (nextIndex < replayTargetIndex) {
+        nextIndex += 1;
+        _introTimer = Timer(_introStepDuration + _introStepPause, step);
+      } else if (targetIsOnRoad) {
+        _scheduleDeliveryToOnRoad(
+          notify: false,
+          approachDuration: _introStepDuration + _introStepPause,
+        );
+      }
+    }
+
+    _introTimer = Timer(const Duration(milliseconds: 180), step);
   }
 
   void _syncMotion({required bool animated}) {
@@ -130,10 +210,13 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
     });
   }
 
-  void _scheduleDeliveryToOnRoad() {
+  void _scheduleDeliveryToOnRoad({
+    required bool notify,
+    Duration approachDuration = _moveDuration,
+  }) {
     if (!widget.enableAutoOnRoad) return;
 
-    _exitTimer = Timer(_moveDuration, () {
+    _exitTimer = Timer(approachDuration, () {
       if (!mounted || _displayStatus != JobStatus.deliveryScheduled) return;
       setState(() {
         _motionPhase = _CarMotionPhase.exiting;
@@ -142,16 +225,17 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
       });
     });
 
-    _enterTimer = Timer(_moveDuration + _exitDuration, () {
+    _enterTimer = Timer(approachDuration + _exitDuration, () {
       if (!mounted || _displayStatus != JobStatus.deliveryScheduled) return;
       setState(() {
+        _targetStatus = JobStatus.onRoad;
         _displayStatus = JobStatus.onRoad;
         _motionPhase = _CarMotionPhase.preEnter;
         _carDuration = Duration.zero;
         _carCurve = Curves.linear;
       });
       _syncMotion(animated: true);
-      widget.onStatusChanged?.call(JobStatus.onRoad);
+      if (notify) widget.onStatusChanged?.call(JobStatus.onRoad);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _displayStatus != JobStatus.onRoad) return;
         setState(() {
@@ -168,68 +252,52 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
     if (status == _displayStatus && _motionPhase == _CarMotionPhase.normal) {
       return;
     }
-    _setStatus(status, notify: true);
+    _introTimer?.cancel();
+    _introTimer = null;
+    _applyStatus(
+      status,
+      notify: true,
+      moveDuration: _moveDuration,
+      allowAutoOnRoad: true,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 12),
       decoration: BoxDecoration(
         color: const Color(0xFFF4F6F8),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isNarrow = constraints.maxWidth < 430;
-          final title = Text(
-            'Garage Service Tracker',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF111827),
-              fontSize: 32,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0,
-            ),
-          );
-          final selector = SizedBox(
-            width: isNarrow ? double.infinity : 260,
-            child: _StatusSelect(
-              value: _displayStatus,
-              readOnly: widget.onStatusChanged == null,
-              onChanged: _handleStatusChanged,
-            ),
-          );
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isNarrow) ...[
-                Align(alignment: Alignment.centerLeft, child: title),
-                const SizedBox(height: 14),
-                selector,
-              ] else
-                Row(
-                  children: [
-                    Expanded(child: title),
-                    const SizedBox(width: 18),
-                    selector,
-                  ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: _StatusSelect(
+                  value: _displayStatus,
+                  readOnly: widget.onStatusChanged == null,
+                  onChanged: _handleStatusChanged,
                 ),
-              const SizedBox(height: 26),
-              _TrackerScene(
-                status: _displayStatus,
-                motionPhase: _motionPhase,
-                carDuration: _carDuration,
-                carCurve: _carCurve,
-                idleAnimation: _idleController,
-                roadAnimation: _roadController,
-                wheelAnimation: _wheelController,
               ),
-            ],
-          );
-        },
+            ),
+          ),
+          const SizedBox(height: 4),
+          _TrackerScene(
+            status: _displayStatus,
+            motionPhase: _motionPhase,
+            carDuration: _carDuration,
+            carCurve: _carCurve,
+            idleAnimation: _idleController,
+            roadAnimation: _roadController,
+            wheelAnimation: _wheelController,
+          ),
+        ],
       ),
     );
   }
@@ -248,41 +316,76 @@ class _StatusSelect extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selector = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+    final label = _trackerLabel(value);
+    const controlRed = Color(0xFFE80000);
+    final decoration = BoxDecoration(
+      color: controlRed,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: controlRed),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.08),
+          blurRadius: 14,
+          offset: const Offset(0, 6),
+        ),
+      ],
+    );
+
+    if (readOnly) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: decoration,
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
           ),
-        ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      decoration: BoxDecoration(
+        color: controlRed,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: controlRed),
+        boxShadow: decoration.boxShadow,
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<JobStatus>(
           value: value,
           isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down_rounded),
-          dropdownColor: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: 22,
+            color: Colors.white,
+          ),
+          dropdownColor: controlRed,
+          borderRadius: BorderRadius.circular(8),
           style: const TextStyle(
-            color: Color(0xFF111827),
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
             letterSpacing: 0,
           ),
           selectedItemBuilder: (context) {
             return JobStatus.values
                 .map(
-                  (status) => Align(
-                    alignment: Alignment.centerLeft,
+                  (status) => Center(
                     child: Text(
                       _trackerLabel(status),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 )
@@ -292,10 +395,13 @@ class _StatusSelect extends StatelessWidget {
               .map(
                 (status) => DropdownMenuItem<JobStatus>(
                   value: status,
-                  child: Text(
-                    _trackerLabel(status),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  child: Center(
+                    child: Text(
+                      _trackerLabel(status),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               )
@@ -304,8 +410,6 @@ class _StatusSelect extends StatelessWidget {
         ),
       ),
     );
-
-    return IgnorePointer(ignoring: readOnly, child: selector);
   }
 }
 
@@ -328,19 +432,34 @@ class _TrackerScene extends StatelessWidget {
   final Animation<double> roadAnimation;
   final Animation<double> wheelAnimation;
 
+  static const _carWrapperBottom = -8.0;
+  static const _exitOffset = 240.0;
+  static const _enterOffset = -260.0;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final carWidth = width < 390
-            ? 158.0
+        final carWidth = width < 360
+            ? 90.0
             : width < 520
-            ? 188.0
-            : 220.0;
+            ? 110.0
+            : width < 760
+            ? 130.0
+            : 148.0;
+        final roadHeight = width < 360
+            ? 24.0
+            : width < 520
+            ? 28.0
+            : 32.0;
         final scale = carWidth / 220;
         final carHeight = carWidth * 792 / 1080;
-        final sceneHeight = math.max(176.0, carHeight + 28);
+        final sceneHeight = width < 360
+            ? 78.0
+            : width < 520
+            ? 92.0
+            : 106.0;
         final carLeft = _carLeftFor(width, carWidth, scale);
         final repairMode =
             status == JobStatus.pickupScheduled ||
@@ -359,7 +478,7 @@ class _TrackerScene extends StatelessWidget {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  height: 64,
+                  height: roadHeight,
                   child: AnimatedBuilder(
                     animation: roadAnimation,
                     builder: (context, _) {
@@ -376,7 +495,7 @@ class _TrackerScene extends StatelessWidget {
                   duration: carDuration,
                   curve: carCurve,
                   left: carLeft,
-                  bottom: -8 * scale,
+                  bottom: _carWrapperBottom * scale,
                   width: carWidth,
                   height: carHeight,
                   child: AnimatedBuilder(
@@ -409,18 +528,20 @@ class _TrackerScene extends StatelessWidget {
   double _carLeftFor(double width, double carWidth, double scale) {
     switch (motionPhase) {
       case _CarMotionPhase.exiting:
-        return width + carWidth + 20;
+        return width + (_exitOffset * scale);
       case _CarMotionPhase.preEnter:
-        return -carWidth - 40;
+        return _enterOffset * scale;
       case _CarMotionPhase.normal:
         return switch (status) {
           JobStatus.pickupScheduled => 40 * scale,
-          JobStatus.pickupDone => width * 0.16 - carWidth / 2,
-          JobStatus.received => width * 0.30 - carWidth / 2,
-          JobStatus.underInspection => width * 0.44 - carWidth / 2,
-          JobStatus.workInProgress => width * 0.58 - carWidth / 2,
-          JobStatus.completed => width * 0.72 - carWidth / 2,
-          JobStatus.deliveryScheduled => width * 0.86 - 60 * scale,
+          JobStatus.pickupDone ||
+          JobStatus.received ||
+          JobStatus.underInspection ||
+          JobStatus.workInProgress ||
+          JobStatus.completed =>
+            width * _checkpointFractionForStatus(status) - carWidth / 2,
+          JobStatus.deliveryScheduled =>
+            width * _checkpointFractionForStatus(status) - 60 * scale,
           JobStatus.onRoad => (width - carWidth) / 2,
         };
     }
@@ -442,22 +563,34 @@ class _CarAssetStack extends StatelessWidget {
   final double scale;
   final Animation<double> wheelAnimation;
 
+  static const _wheelRotationAlignment = Alignment(0, -24 / 196);
+
   @override
   Widget build(BuildContext context) {
     final wheelSize = 196 * scale;
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
+        Positioned.fill(
           child: SvgPicture.asset(
-            repairMode
-                ? 'assets/car_status/repair.svg'
-                : 'assets/car_status/car.svg',
-            key: ValueKey(repairMode),
+            'assets/car_status/car.svg',
             width: carWidth,
             height: carHeight,
             fit: BoxFit.contain,
+            colorFilter: repairMode
+                ? const ColorFilter.mode(Colors.transparent, BlendMode.dstIn)
+                : null,
+          ),
+        ),
+        Positioned.fill(
+          child: SvgPicture.asset(
+            'assets/car_status/repair.svg',
+            width: carWidth,
+            height: carHeight,
+            fit: BoxFit.contain,
+            colorFilter: repairMode
+                ? null
+                : const ColorFilter.mode(Colors.transparent, BlendMode.dstIn),
           ),
         ),
         Positioned(
@@ -466,6 +599,7 @@ class _CarAssetStack extends StatelessWidget {
           width: wheelSize,
           height: wheelSize,
           child: RotationTransition(
+            alignment: _wheelRotationAlignment,
             turns: wheelAnimation,
             child: SvgPicture.asset(
               'assets/car_status/tire.svg',
@@ -481,6 +615,7 @@ class _CarAssetStack extends StatelessWidget {
           width: wheelSize,
           height: wheelSize,
           child: RotationTransition(
+            alignment: _wheelRotationAlignment,
             turns: wheelAnimation,
             child: SvgPicture.asset(
               'assets/car_status/tire.svg',
@@ -507,16 +642,26 @@ class _RoadPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final roadScale = size.height / 64;
+    final logicalSize = Size(size.width, 64);
+    canvas.save();
+    canvas.scale(1, roadScale);
     final shift = onRoadMode ? -progress * size.width : 0.0;
-    _paintLayer(canvas, size, Offset(shift, 0), showCheckpoints: !onRoadMode);
+    _paintLayer(
+      canvas,
+      logicalSize,
+      Offset(shift, 0),
+      showCheckpoints: !onRoadMode,
+    );
     if (onRoadMode) {
       _paintLayer(
         canvas,
-        size,
-        Offset(shift + size.width - 1, 0),
+        logicalSize,
+        Offset(shift + logicalSize.width - 1, 0),
         showCheckpoints: false,
       );
     }
+    canvas.restore();
   }
 
   void _paintLayer(
@@ -548,10 +693,13 @@ class _RoadPainter extends CustomPainter {
     _drawRoadSurface(canvas, size.width);
 
     if (showCheckpoints) {
-      for (final percent in const [0.16, 0.30, 0.44, 0.58, 0.72]) {
-        _drawCheckpoint(canvas, size.width * percent);
+      for (var index = 0; index < _finishCheckpointIndex; index += 1) {
+        _drawCheckpoint(canvas, size.width * _checkpointFraction(index));
       }
-      _drawFinalCheckpoint(canvas, size.width * 0.86);
+      _drawFinalCheckpoint(
+        canvas,
+        size.width * _checkpointFraction(_finishCheckpointIndex),
+      );
     }
 
     _drawBottomEdge(canvas, size.width);

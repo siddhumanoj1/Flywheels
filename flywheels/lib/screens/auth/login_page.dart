@@ -13,6 +13,33 @@ import 'package:sms_autofill/sms_autofill.dart';
 
 enum _AuthMode { welcome, createAccount, phoneLogin }
 
+const _authLogoSize = SpeedometerLogoLoader.defaultLogoSize * 1.15 * 1.05;
+const _authLogoDisplaySize = _authLogoSize * BrandLogo.displayScale;
+const _authLogoLift = _authLogoDisplaySize * 0.20;
+const _authLogoLayoutHeight = _authLogoDisplaySize - (_authLogoLift * 1.85);
+const _formLogoSize = _authLogoSize * 0.90;
+const _formLogoDisplaySize = _formLogoSize * BrandLogo.displayScale;
+const _formLogoLift = _formLogoDisplaySize * 0.20;
+const _formLogoLayoutHeight = _formLogoDisplaySize - (_formLogoLift * 1.85);
+const _welcomeContentVisualLift = _authLogoDisplaySize * 0.18;
+const _createAccountContentLift = SpeedometerLogoLoader.defaultLogoSize * 0.20;
+const _actionButtonHorizontalInset = 5.0;
+const _actionButtonWidthFactor = 0.95;
+const _actionButtonIconSize = 45.44;
+const _authRoundButtonSize = 56.0 * 0.90;
+const _authRoundButtonIconSize = 36.0 * 0.90;
+const _otpCloseButtonSize = _authRoundButtonSize * 0.80;
+const _otpCloseIconSize = _authRoundButtonIconSize * 1.16;
+const _otpCloseCornerShift = _otpCloseButtonSize * 0.30;
+const _pressedIconGlowIntensity = 1.85;
+const _logoContentGap = 21.0;
+const _welcomeLogoButtonsGap = _logoContentGap * 2;
+const _authFrameHorizontalInset = 10.0;
+const _authFrameTopInset = 1.5;
+const _authFrameBottomInset = 8.5;
+const _authContentTopPadding = 22.0;
+const _authContentTopPaddingWithBack = 62.0;
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -77,6 +104,29 @@ class _LoginPageState extends State<LoginPage> {
   bool get _isPhoneValid => _otpPhone.length == 10;
   bool _hasCurrentOtp(AppController controller) {
     return _otpRequested && controller.requestedPhone == _otpPhone;
+  }
+
+  void _showWelcome() {
+    setState(() {
+      _authMode = _AuthMode.welcome;
+      _phoneLoginNotice = null;
+      _accountMessage = null;
+    });
+  }
+
+  void _showCreateAccount() {
+    setState(() {
+      _authMode = _AuthMode.createAccount;
+      _accountMessage = null;
+      _phoneLoginNotice = null;
+    });
+  }
+
+  void _handleSwipeBack(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_authMode != _AuthMode.welcome && velocity > 400) {
+      _showWelcome();
+    }
   }
 
   Future<void> _requestOtp(AppController controller) async {
@@ -258,39 +308,99 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
+    const pureRed = Color.fromARGB(255, 255, 0, 0);
 
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                22,
-                22,
-                22,
-                MediaQuery.of(context).viewInsets.bottom + 22,
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - 44,
+    return PopScope(
+      canPop: _authMode == _AuthMode.welcome,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _authMode != _AuthMode.welcome) {
+          _showWelcome();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: pureRed,
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              _authFrameHorizontalInset,
+              _authFrameTopInset,
+              _authFrameHorizontalInset,
+              _authFrameBottomInset,
+            ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragEnd: _handleSwipeBack,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  border: Border.all(color: pureRed, width: 5),
+                  borderRadius: BorderRadius.circular(45),
                 ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: _authMode == _AuthMode.welcome ? 540 : 500,
+                child: Stack(
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        return SingleChildScrollView(
+                          padding: EdgeInsets.fromLTRB(
+                            22,
+                            _authMode == _AuthMode.welcome
+                                ? _authContentTopPadding
+                                : _authContentTopPaddingWithBack,
+                            22,
+                            MediaQuery.of(context).viewInsets.bottom + 22,
+                          ),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight - 44,
+                            ),
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: _authMode == _AuthMode.welcome
+                                      ? 760
+                                      : 500,
+                                ),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 360),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  transitionBuilder: (child, animation) {
+                                    final offset = Tween<Offset>(
+                                      begin: const Offset(0, 0.04),
+                                      end: Offset.zero,
+                                    ).animate(animation);
+                                    final scale = Tween<double>(
+                                      begin: 0.985,
+                                      end: 1,
+                                    ).animate(animation);
+
+                                    return FadeTransition(
+                                      opacity: animation,
+                                      child: SlideTransition(
+                                        position: offset,
+                                        child: ScaleTransition(
+                                          scale: scale,
+                                          child: child,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: _buildAuthPanel(controller),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 320),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      child: _buildAuthPanel(controller),
-                    ),
-                  ),
+                    if (_authMode != _AuthMode.welcome)
+                      Positioned(left: 12, top: 12, child: _backButton()),
+                  ],
                 ),
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
@@ -308,113 +418,99 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Widget _buildWelcomePanel(AppController controller) {
+    final media = MediaQuery.of(context);
+    final availableHeight =
+        media.size.height -
+        media.padding.vertical -
+        _authFrameTopInset -
+        _authFrameBottomInset -
+        44;
+    final panelHeight = availableHeight < 440.0 ? 440.0 : availableHeight;
+
     return TweenAnimationBuilder<double>(
       key: const ValueKey('welcome-panel'),
       tween: Tween(begin: 0.0, end: 1.0),
       duration: const Duration(milliseconds: 1150),
       curve: Curves.linear,
       builder: (context, value, child) {
-        final wordmarkProgress = _intervalProgress(
-          value,
-          0.0,
-          0.52,
-          Curves.easeOutCubic,
-        );
-        final copyProgress = _intervalProgress(
-          value,
-          0.42,
-          0.82,
-          Curves.easeOutCubic,
-        );
         final actionProgress = _intervalProgress(
           value,
-          0.58,
+          0.50,
           1.0,
           Curves.easeOutCubic,
         );
 
         return Opacity(
           opacity: 0.96 + (value * 0.04),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Opacity(
-                opacity: wordmarkProgress,
-                child: Transform.translate(
-                  offset: Offset(0, 12 * (1 - wordmarkProgress)),
-                  child: const BrandWordmark(center: true),
-                ),
-              ),
-              SizedBox(height: 14 + (8 * (1 - wordmarkProgress))),
-              _WelcomeOpeningMark(progress: value),
-              const SizedBox(height: 24),
-              Opacity(
-                opacity: copyProgress,
-                child: Transform.translate(
-                  offset: Offset(0, 12 * (1 - copyProgress)),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Welcome',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Customer account setup and phone-key access for Flywheels Auto.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+          child: SizedBox(
+            height: panelHeight,
+            child: Transform.translate(
+              offset: const Offset(0, -_welcomeContentVisualLift),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _WelcomeOpeningMark(progress: value),
+                  const SizedBox(height: _welcomeLogoButtonsGap),
+                  Opacity(
+                    opacity: actionProgress,
+                    child: Transform.translate(
+                      offset: Offset(0, 18 * (1 - actionProgress)),
+                      child: _buildWelcomeActions(controller),
+                    ),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 24),
-              Opacity(
-                opacity: actionProgress,
-                child: Transform.translate(
-                  offset: Offset(0, 18 * (1 - actionProgress)),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _authMode = _AuthMode.createAccount;
-                              _accountMessage = null;
-                            });
-                          },
-                          icon: const Icon(Icons.person_add_alt_1_rounded),
-                          label: const Text('Create account'),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () =>
-                              _openPhoneLogin(controller: controller),
-                          icon: const Icon(Icons.vpn_key_rounded),
-                          label: const Text('Phone key'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
     );
   }
 
+  Widget _buildWelcomeActions(AppController controller) {
+    final createAccount = _WelcomeActionButton(
+      label: 'Create account',
+      iconType: _WelcomeIconType.profile,
+      onPressed: _showCreateAccount,
+    );
+    final phoneKey = _WelcomeActionButton(
+      label: 'Phone key',
+      iconType: _WelcomeIconType.key,
+      onPressed: () => _openPhoneLogin(controller: controller),
+    );
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 540),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth >= 460) {
+            return Row(
+              children: [
+                Expanded(child: createAccount),
+                const SizedBox(width: _logoContentGap),
+                Expanded(child: phoneKey),
+              ],
+            );
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              createAccount,
+              const SizedBox(height: _logoContentGap),
+              phoneKey,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildPhoneLoginPanel(AppController controller) {
     final hasCurrentOtp = _hasCurrentOtp(controller);
 
-    return Card(
+    return KeyedSubtree(
       key: const ValueKey('phone-login-panel'),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -422,10 +518,8 @@ class _LoginPageState extends State<LoginPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _backButton(),
-            const SizedBox(height: 8),
-            const Center(child: BrandLogo(size: 86)),
-            const SizedBox(height: 16),
+            const _AuthLogo(),
+            const SizedBox(height: _logoContentGap),
             Text(
               'Phone key',
               style: Theme.of(context).textTheme.headlineMedium,
@@ -453,21 +547,16 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: controller.isSendingOtp || !_isPhoneValid
-                    ? null
-                    : hasCurrentOtp
-                    ? () => _openOtpDialog(controller)
-                    : () => _requestOtp(controller),
-                icon: Icon(
-                  hasCurrentOtp ? Icons.dialpad_rounded : Icons.speed_rounded,
-                ),
-                label: Text(hasCurrentOtp ? 'Enter OTP' : 'Send OTP'),
-              ),
+            _WelcomeActionButton(
+              label: hasCurrentOtp ? 'Enter OTP' : 'Send OTP',
+              iconType: _WelcomeIconType.key,
+              onPressed: controller.isSendingOtp || !_isPhoneValid
+                  ? null
+                  : hasCurrentOtp
+                  ? () => _openOtpDialog(controller)
+                  : () => _requestOtp(controller),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: _logoContentGap),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -493,144 +582,141 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Widget _buildCreateAccountPanel(AppController controller) {
-    return Card(
+    return KeyedSubtree(
       key: const ValueKey('create-account-panel'),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _backButton(),
-            const SizedBox(height: 10),
-            Text(
-              'Create customer account',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Only customer accounts can be created here. Existing phones move to OTP login.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 18),
-            TextField(
-              controller: _nameController,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _accountPhoneController,
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Phone number',
-                hintText: 'Required',
-                prefixText: '+91 ',
+      child: Transform.translate(
+        offset: const Offset(0, -_createAccountContentLift),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _AuthLogo(),
+              const SizedBox(height: _logoContentGap),
+              Text(
+                'Create customer account',
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                hintText: 'Optional',
+              const SizedBox(height: 8),
+              Text(
+                'Only customer accounts can be created here. Existing phones move to OTP login.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-            ),
-            const SizedBox(height: 12),
-            CheckboxListTile(
-              value: _wantsAccountCarDetails,
-              onChanged: (value) {
-                setState(() {
-                  _wantsAccountCarDetails = value ?? false;
-                  _accountMessage = null;
-                });
-              },
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Add car details now'),
-            ),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              child: _wantsAccountCarDetails
-                  ? Container(
-                      key: const ValueKey('account-car-details'),
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppPalette.soft,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppPalette.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Car details',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 12),
-                          CustomerCarDetailsFields(
-                            picker: _picker,
-                            carNumberController: _carNumberController,
-                            modelController: _carModelController,
-                            fuelController: _fuelController,
-                            yearController: _yearController,
-                            onImagePathChanged: (path) {
-                              setState(() => _accountCarImagePath = path);
-                            },
-                            onEdited: () {
-                              setState(() {
-                                _accountMessage = null;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    )
-                  : const SizedBox.shrink(key: ValueKey('no-car-details')),
-            ),
-            CheckboxListTile(
-              value: _dataSharingConsent,
-              onChanged: (value) {
-                setState(() {
-                  _dataSharingConsent = value ?? false;
-                  _accountMessage = null;
-                });
-              },
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: const Text(
-                "I'm OK with sharing my data with Flywheels Auto.",
+              const SizedBox(height: 18),
+              TextField(
+                controller: _nameController,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'Name'),
               ),
-            ),
-            if (_accountMessage != null) const SizedBox(height: 4),
-            if (_accountMessage != null)
-              _noticeBox(_accountMessage!, isError: _accountMessageIsError),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
+              const SizedBox(height: 12),
+              TextField(
+                controller: _accountPhoneController,
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Phone number',
+                  hintText: 'Required',
+                  prefixText: '+91 ',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  hintText: 'Optional',
+                ),
+              ),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                value: _wantsAccountCarDetails,
+                onChanged: (value) {
+                  setState(() {
+                    _wantsAccountCarDetails = value ?? false;
+                    _accountMessage = null;
+                  });
+                },
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Add car details now'),
+              ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _wantsAccountCarDetails
+                    ? Container(
+                        key: const ValueKey('account-car-details'),
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppPalette.soft,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppPalette.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Car details',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 12),
+                            CustomerCarDetailsFields(
+                              picker: _picker,
+                              carNumberController: _carNumberController,
+                              modelController: _carModelController,
+                              fuelController: _fuelController,
+                              yearController: _yearController,
+                              onImagePathChanged: (path) {
+                                setState(() => _accountCarImagePath = path);
+                              },
+                              onEdited: () {
+                                setState(() {
+                                  _accountMessage = null;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-car-details')),
+              ),
+              CheckboxListTile(
+                value: _dataSharingConsent,
+                onChanged: (value) {
+                  setState(() {
+                    _dataSharingConsent = value ?? false;
+                    _accountMessage = null;
+                  });
+                },
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  "I'm OK with sharing my data with Flywheels Auto.",
+                ),
+              ),
+              if (_accountMessage != null) const SizedBox(height: 4),
+              if (_accountMessage != null)
+                _noticeBox(_accountMessage!, isError: _accountMessageIsError),
+              const SizedBox(height: 16),
+              _WelcomeActionButton(
+                label: 'Create account',
+                iconType: _WelcomeIconType.profile,
                 onPressed: () => _submitCreateAccount(controller),
-                icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: const Text('Create account'),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
+              const SizedBox(height: 10),
+              _WelcomeActionButton(
+                label: 'Use Phone key',
+                iconType: _WelcomeIconType.key,
                 onPressed: () => _openPhoneLogin(controller: controller),
-                icon: const Icon(Icons.vpn_key_rounded),
-                label: const Text('Use Phone key'),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -657,17 +743,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Widget _backButton() {
-    return IconButton.outlined(
-      tooltip: 'Back',
-      onPressed: () {
-        setState(() {
-          _authMode = _AuthMode.welcome;
-          _phoneLoginNotice = null;
-          _accountMessage = null;
-        });
-      },
-      icon: const Icon(Icons.arrow_back_rounded),
-    );
+    return _AuthBackButton(onPressed: _showWelcome);
   }
 }
 
@@ -703,14 +779,32 @@ class _WelcomeOpeningMark extends StatelessWidget {
       1.0,
       Curves.easeOutCubic,
     );
-    final markHeight = _lerp(220, 126, collapse);
-    final gaugeSize = _lerp(220, 132, collapse);
-    final gaugeLogoSize = _lerp(106, 70, collapse);
+    final markHeight = _lerp(
+      SpeedometerLogoLoader.defaultSize,
+      _authLogoLayoutHeight,
+      collapse,
+    );
+    final gaugeSize = _lerp(
+      SpeedometerLogoLoader.defaultSize,
+      SpeedometerLogoLoader.defaultSize * 0.6,
+      collapse,
+    );
+    final gaugeLogoSize = _lerp(
+      SpeedometerLogoLoader.defaultLogoSize,
+      SpeedometerLogoLoader.defaultLogoSize * 0.66,
+      collapse,
+    );
+    final logoTop = _lerp(
+      (markHeight - _authLogoDisplaySize) / 2,
+      -_authLogoLift,
+      collapse,
+    );
 
     return SizedBox(
-      width: 220,
+      width: SpeedometerLogoLoader.defaultSize,
       height: markHeight,
       child: Stack(
+        clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
           Opacity(
@@ -720,16 +814,496 @@ class _WelcomeOpeningMark extends StatelessWidget {
               logoSize: gaugeLogoSize,
             ),
           ),
-          Opacity(
-            opacity: logoOpacity,
-            child: Transform.scale(
-              scale: 0.9 + (0.1 * logoOpacity),
-              child: const BrandLogo(size: 86),
+          Positioned(
+            top: logoTop,
+            child: Opacity(
+              opacity: logoOpacity,
+              child: Transform.scale(
+                scale: 0.9 + (0.1 * logoOpacity),
+                child: const BrandLogo(size: _authLogoSize),
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+class _AuthLogo extends StatelessWidget {
+  const _AuthLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: _formLogoLayoutHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          Positioned(
+            top: -_formLogoLift,
+            child: BrandLogo(size: _formLogoSize),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AuthBackButton extends StatelessWidget {
+  const _AuthBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuthRoundIconButton(
+      tooltip: 'Back',
+      onPressed: onPressed,
+      iconType: _WelcomeIconType.leftArrow,
+      iconColor: const Color(0xFF31D158),
+    );
+  }
+}
+
+class _AuthRoundIconButton extends StatefulWidget {
+  const _AuthRoundIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.iconType,
+    required this.iconColor,
+    this.size = _authRoundButtonSize,
+    this.iconSize = _authRoundButtonIconSize,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final _WelcomeIconType iconType;
+  final Color iconColor;
+  final double size;
+  final double iconSize;
+
+  @override
+  State<_AuthRoundIconButton> createState() => _AuthRoundIconButtonState();
+}
+
+class _AuthRoundIconButtonState extends State<_AuthRoundIconButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconGlow = _isPressed ? _pressedIconGlowIntensity : 1.0;
+    final borderRadius = BorderRadius.circular(widget.size / 2);
+
+    return Tooltip(
+      message: widget.tooltip,
+      child: Material(
+        color: const Color.fromARGB(255, 38, 36, 36),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: const BorderSide(color: AppPalette.black),
+        ),
+        child: InkWell(
+          onTap: widget.onPressed,
+          onHighlightChanged: (isPressed) {
+            setState(() => _isPressed = isPressed);
+          },
+          child: Ink(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              borderRadius: borderRadius,
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0, 0.46, 1],
+                colors: [
+                  Color(0xFF2B2D2E),
+                  Color(0xFF242626),
+                  Color(0xFF202222),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppPalette.black.withValues(alpha: 0.28),
+                  offset: const Offset(0, 10),
+                  blurRadius: 18,
+                ),
+              ],
+            ),
+            child: Center(
+              child: _WelcomeMatrixIcon(
+                type: widget.iconType,
+                color: widget.iconColor,
+                size: widget.iconSize,
+                glowIntensity: iconGlow,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WelcomeActionButton extends StatefulWidget {
+  const _WelcomeActionButton({
+    required this.label,
+    required this.iconType,
+    required this.onPressed,
+  });
+
+  final String label;
+  final _WelcomeIconType iconType;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_WelcomeActionButton> createState() => _WelcomeActionButtonState();
+}
+
+class _WelcomeActionButtonState extends State<_WelcomeActionButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEnabled = widget.onPressed != null;
+    final iconGlow = _isPressed && isEnabled ? _pressedIconGlowIntensity : 1.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final buttonWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth * _actionButtonWidthFactor
+            : null;
+
+        return Align(
+          alignment: Alignment.center,
+          child: Opacity(
+            opacity: isEnabled ? 1 : 0.52,
+            child: SizedBox(
+              width: buttonWidth,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: _actionButtonHorizontalInset,
+                ),
+                child: Material(
+                  color: const Color.fromARGB(255, 38, 36, 36),
+                  clipBehavior: Clip.antiAlias,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: AppPalette.black),
+                  ),
+                  child: InkWell(
+                    onTap: widget.onPressed,
+                    onHighlightChanged: isEnabled
+                        ? (isPressed) {
+                            setState(() => _isPressed = isPressed);
+                          }
+                        : null,
+                    child: Ink(
+                      height: 76,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: [0, 0.46, 1],
+                          colors: [
+                            Color(0xFF2B2D2E),
+                            Color(0xFF242626),
+                            Color(0xFF202222),
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppPalette.black.withValues(alpha: 0.28),
+                            offset: const Offset(0, 16),
+                            blurRadius: 25,
+                          ),
+                        ],
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            height: 1,
+                            child: ColoredBox(
+                              color: AppPalette.white.withValues(alpha: 0.06),
+                            ),
+                          ),
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 1,
+                            child: ColoredBox(
+                              color: AppPalette.black.withValues(alpha: 0.64),
+                            ),
+                          ),
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox.square(
+                                    dimension: _actionButtonIconSize,
+                                    child: _WelcomeMatrixIcon(
+                                      type: widget.iconType,
+                                      color: AppPalette.red,
+                                      size: _actionButtonIconSize,
+                                      glowIntensity: iconGlow,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      widget.label,
+                                      maxLines: 1,
+                                      textAlign: TextAlign.center,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            color: AppPalette.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _WelcomeMatrixIcon(
+                                    type: _WelcomeIconType.rightArrow,
+                                    color: Color(0xFF31D158),
+                                    size: _actionButtonIconSize,
+                                    glowIntensity: iconGlow,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+enum _WelcomeIconType { profile, key, leftArrow, rightArrow, close }
+
+class _WelcomeMatrixIcon extends StatelessWidget {
+  const _WelcomeMatrixIcon({
+    required this.type,
+    required this.color,
+    this.size = 24,
+    this.glowIntensity = 1.0,
+  });
+
+  final _WelcomeIconType type;
+  final Color color;
+  final double size;
+  final double glowIntensity;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _WelcomeMatrixIconPainter(
+        type: type,
+        color: color,
+        glowIntensity: glowIntensity,
+      ),
+    );
+  }
+}
+
+class _WelcomeMatrixIconPainter extends CustomPainter {
+  const _WelcomeMatrixIconPainter({
+    required this.type,
+    required this.color,
+    required this.glowIntensity,
+  });
+
+  static const _matrixSize = 24;
+  static const _dotRatio = 0.9;
+  static const _litIconScale = 0.9;
+  static const _baseGlowBlur = 25.0;
+
+  final _WelcomeIconType type;
+  final Color color;
+  final double glowIntensity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final glow = glowIntensity.clamp(1.0, 2.2).toDouble();
+    final cellWidth = size.width / _matrixSize;
+    final cellHeight = size.height / _matrixSize;
+    final dotSize =
+        (cellWidth < cellHeight ? cellWidth : cellHeight) * _dotRatio;
+    final dotScale = dotSize / 8;
+    final boostedColor =
+        Color.lerp(color, AppPalette.white, (glow - 1) * 0.22) ?? color;
+    final activePaint = Paint()
+      ..color = boostedColor
+      ..style = PaintingStyle.fill;
+    final glowPaint = Paint()
+      ..color = boostedColor.withValues(
+        alpha: (0.72 + ((glow - 1) * 0.20)).clamp(0.0, 1.0).toDouble(),
+      )
+      ..maskFilter = MaskFilter.blur(
+        BlurStyle.normal,
+        _baseGlowBlur * dotScale * _litIconScale * glow,
+      );
+
+    final iconWidth = size.width * _litIconScale;
+    final iconHeight = size.height * _litIconScale;
+    final iconLeft = (size.width - iconWidth) / 2;
+    final iconTop = (size.height - iconHeight) / 2;
+    final iconCellWidth = iconWidth / _matrixSize;
+    final iconCellHeight = iconHeight / _matrixSize;
+    final iconDotSize =
+        (iconCellWidth < iconCellHeight ? iconCellWidth : iconCellHeight) *
+        _dotRatio;
+    final iconRadius = iconDotSize / 2;
+
+    for (var y = 0; y < _matrixSize; y++) {
+      for (var x = 0; x < _matrixSize; x++) {
+        if (!_isOn(x, y)) {
+          continue;
+        }
+
+        final center = Offset(
+          iconLeft + (x + 0.5) * iconCellWidth,
+          iconTop + (y + 0.5) * iconCellHeight,
+        );
+        canvas.drawCircle(center, iconRadius, glowPaint);
+        canvas.drawCircle(center, iconRadius, activePaint);
+      }
+    }
+  }
+
+  bool _isOn(int x, int y) {
+    return switch (type) {
+      _WelcomeIconType.profile => _profilePixel(x, y),
+      _WelcomeIconType.key => _keyPixel(x, y),
+      _WelcomeIconType.leftArrow => _rowPixel(_leftArrowRows[y], x),
+      _WelcomeIconType.rightArrow => _rowPixel(_rightArrowRows[y], x),
+      _WelcomeIconType.close => _closePixel(x, y),
+    };
+  }
+
+  bool _profilePixel(int x, int y) {
+    var head = false;
+    var body = false;
+
+    if (y == 3 || y == 11) {
+      head = x >= 9 && x <= 14;
+    } else if (y == 4 || y == 10) {
+      head = x >= 8 && x <= 15;
+    } else if (y >= 5 && y <= 9) {
+      head = x >= 7 && x <= 16;
+    }
+
+    if (y == 13) {
+      body = x >= 7 && x <= 16;
+    } else if (y == 14) {
+      body = x >= 6 && x <= 17;
+    } else if (y == 15) {
+      body = x >= 5 && x <= 18;
+    } else if (y >= 16 && y <= 20) {
+      body = x >= 4 && x <= 19;
+    }
+
+    return head || body;
+  }
+
+  bool _keyPixel(int x, int y) {
+    final dx = x - 6;
+    final dy = y - 11;
+    final bowOuter = (dx * dx) + (dy * dy) <= 17;
+    final bowHole = (dx * dx) + (dy * dy) <= 5;
+    final bow = bowOuter && !bowHole;
+    final shaft = x >= 10 && x <= 21 && y >= 9 && y <= 11;
+    final toothOne = x >= 16 && x <= 17 && y >= 12 && y <= 14;
+    final toothTwo = x >= 20 && x <= 21 && y >= 12 && y <= 16;
+
+    return bow || shaft || toothOne || toothTwo;
+  }
+
+  bool _closePixel(int x, int y) {
+    final inBounds = x >= 6 && x <= 17 && y >= 6 && y <= 17;
+    final fallingStroke = (x - y).abs() <= 1;
+    final risingStroke = (x + y - 23).abs() <= 1;
+
+    return inBounds && (fallingStroke || risingStroke);
+  }
+
+  bool _rowPixel(List<(int, int)>? ranges, int x) {
+    if (ranges == null) {
+      return false;
+    }
+
+    return ranges.any((range) => x >= range.$1 && x <= range.$2);
+  }
+
+  static const Map<int, List<(int, int)>> _leftArrowRows = {
+    4: [(9, 9)],
+    5: [(8, 9)],
+    6: [(7, 9)],
+    7: [(6, 9)],
+    8: [(5, 9)],
+    9: [(4, 21)],
+    10: [(3, 21)],
+    11: [(2, 21)],
+    12: [(1, 21)],
+    13: [(2, 21)],
+    14: [(3, 21)],
+    15: [(4, 21)],
+    16: [(5, 9)],
+    17: [(6, 9)],
+    18: [(7, 9)],
+    19: [(8, 9)],
+    20: [(9, 9)],
+  };
+
+  static const Map<int, List<(int, int)>> _rightArrowRows = {
+    4: [(14, 14)],
+    5: [(14, 15)],
+    6: [(14, 16)],
+    7: [(14, 17)],
+    8: [(14, 18)],
+    9: [(2, 19)],
+    10: [(2, 20)],
+    11: [(2, 21)],
+    12: [(2, 22)],
+    13: [(2, 21)],
+    14: [(2, 20)],
+    15: [(2, 19)],
+    16: [(14, 18)],
+    17: [(14, 17)],
+    18: [(14, 16)],
+    19: [(14, 15)],
+    20: [(14, 14)],
+  };
+
+  @override
+  bool shouldRepaint(covariant _WelcomeMatrixIconPainter oldDelegate) {
+    return oldDelegate.type != type ||
+        oldDelegate.color != color ||
+        oldDelegate.glowIntensity != glowIntensity;
   }
 }
 
@@ -887,8 +1461,9 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                height: 44,
+                height: _authRoundButtonSize + 4,
                 child: Stack(
+                  clipBehavior: Clip.none,
                   alignment: Alignment.center,
                   children: [
                     Center(
@@ -900,10 +1475,19 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
                     ),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: IconButton(
-                        tooltip: isBusy ? 'Cancel' : 'Close',
-                        onPressed: _closeOrCancel,
-                        icon: const Icon(Icons.close_rounded),
+                      child: Transform.translate(
+                        offset: const Offset(
+                          _otpCloseCornerShift,
+                          -_otpCloseCornerShift,
+                        ),
+                        child: _AuthRoundIconButton(
+                          tooltip: isBusy ? 'Cancel' : 'Close',
+                          onPressed: _closeOrCancel,
+                          iconType: _WelcomeIconType.close,
+                          iconColor: AppPalette.red,
+                          size: _otpCloseButtonSize,
+                          iconSize: _otpCloseIconSize,
+                        ),
                       ),
                     ),
                   ],

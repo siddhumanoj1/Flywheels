@@ -377,113 +377,132 @@ class MessengerBubble extends StatelessWidget {
     final bubbleColor = fromCurrentUser ? AppPalette.red : AppPalette.white;
     final textColor = fromCurrentUser ? AppPalette.white : AppPalette.black;
 
-    final bubble = Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-      constraints: const BoxConstraints(maxWidth: 318),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(fromCurrentUser ? 16 : 4),
-          bottomRight: Radius.circular(fromCurrentUser ? 4 : 16),
-        ),
-        border: fromCurrentUser ? null : Border.all(color: AppPalette.border),
-        boxShadow: [
-          BoxShadow(
-            color: AppPalette.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            carLabel == null ? message.topic : '${message.topic} | $carLabel',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: textColor.withValues(alpha: fromCurrentUser ? 0.82 : 0.64),
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final rowWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 318.0;
+        const avatarReserve = 38.0;
+        final bubbleMaxWidth = (rowWidth - avatarReserve).clamp(180.0, 318.0);
+
+        final bubble = Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: Radius.circular(fromCurrentUser ? 16 : 4),
+              bottomRight: Radius.circular(fromCurrentUser ? 4 : 16),
             ),
+            border: fromCurrentUser
+                ? null
+                : Border.all(color: AppPalette.border),
+            boxShadow: [
+              BoxShadow(
+                color: AppPalette.black.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            message.message,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: textColor, height: 1.28),
-          ),
-          if (message.attachmentPath != null) ...[
-            const SizedBox(height: 8),
-            _MessageAttachment(
-              path: message.attachmentPath!,
-              fromCurrentUser: fromCurrentUser,
-            ),
-          ],
-          const SizedBox(height: 6),
-          Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                formatDateTime(message.createdAt),
+                carLabel == null
+                    ? message.topic
+                    : '${message.topic} | $carLabel',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: textColor.withValues(
-                    alpha: fromCurrentUser ? 0.78 : 0.5,
+                    alpha: fromCurrentUser ? 0.82 : 0.64,
                   ),
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 0,
                 ),
               ),
+              const SizedBox(height: 6),
+              Text(
+                message.message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: textColor,
+                  height: 1.28,
+                ),
+              ),
+              if (message.attachmentPath != null) ...[
+                const SizedBox(height: 8),
+                _MessageAttachment(
+                  path: message.attachmentPath!,
+                  fromCurrentUser: fromCurrentUser,
+                ),
+              ],
+              const SizedBox(height: 6),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 6,
+                runSpacing: 2,
+                children: [
+                  Text(
+                    formatDateTime(message.createdAt),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: textColor.withValues(
+                        alpha: fromCurrentUser ? 0.78 : 0.5,
+                      ),
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  if (fromCurrentUser)
+                    Icon(
+                      message.isRead
+                          ? Icons.done_all_rounded
+                          : message.isDelivered
+                          ? Icons.done_all_rounded
+                          : Icons.check_rounded,
+                      size: 15,
+                      color: AppPalette.white.withValues(
+                        alpha: message.isRead ? 1 : 0.7,
+                      ),
+                    ),
+                  if (fromCurrentUser)
+                    Text(
+                      message.isRead ? 'Read' : 'Delivered',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppPalette.white.withValues(alpha: 0.78),
+                        letterSpacing: 0,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+
+        return Align(
+          alignment: fromCurrentUser
+              ? Alignment.centerRight
+              : Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (!fromCurrentUser) ...[
+                MessengerAvatar(path: avatarPath, initials: avatarInitials),
+                const SizedBox(width: 8),
+              ],
+              bubble,
               if (fromCurrentUser) ...[
-                const SizedBox(width: 6),
-                Icon(
-                  message.isRead
-                      ? Icons.done_all_rounded
-                      : message.isDelivered
-                      ? Icons.done_all_rounded
-                      : Icons.check_rounded,
-                  size: 15,
-                  color: AppPalette.white.withValues(
-                    alpha: message.isRead ? 1 : 0.7,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Text(
-                  message.isRead ? 'Read' : 'Delivered',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppPalette.white.withValues(alpha: 0.78),
-                    letterSpacing: 0,
-                  ),
-                ),
+                const SizedBox(width: 8),
+                MessengerAvatar(path: avatarPath, initials: avatarInitials),
               ],
             ],
           ),
-        ],
-      ),
-    );
-
-    return Align(
-      alignment: fromCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!fromCurrentUser) ...[
-            MessengerAvatar(path: avatarPath, initials: avatarInitials),
-            const SizedBox(width: 8),
-          ],
-          bubble,
-          if (fromCurrentUser) ...[
-            const SizedBox(width: 8),
-            MessengerAvatar(path: avatarPath, initials: avatarInitials),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -580,51 +599,63 @@ class _MessageAttachment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_isImage && !_isPdf) {
-      return AppImage(
-        path: path,
-        width: 270,
-        height: 146,
-        borderRadius: BorderRadius.circular(8),
-      );
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 270.0;
 
-    final foreground = fromCurrentUser ? AppPalette.white : AppPalette.black;
-    final background = fromCurrentUser
-        ? AppPalette.white.withValues(alpha: 0.14)
-        : AppPalette.soft;
-    return Container(
-      width: 270,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: fromCurrentUser
-              ? AppPalette.white.withValues(alpha: 0.28)
-              : AppPalette.border,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _isPdf ? Icons.picture_as_pdf_rounded : Icons.attach_file_rounded,
-            color: foreground,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _fileName,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
-              ),
+        if (_isImage && !_isPdf) {
+          return AppImage(
+            path: path,
+            width: width,
+            height: 146,
+            borderRadius: BorderRadius.circular(8),
+          );
+        }
+
+        final foreground = fromCurrentUser
+            ? AppPalette.white
+            : AppPalette.black;
+        final background = fromCurrentUser
+            ? AppPalette.white.withValues(alpha: 0.14)
+            : AppPalette.soft;
+        return Container(
+          width: width,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: fromCurrentUser
+                  ? AppPalette.white.withValues(alpha: 0.28)
+                  : AppPalette.border,
             ),
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              Icon(
+                _isPdf
+                    ? Icons.picture_as_pdf_rounded
+                    : Icons.attach_file_rounded,
+                color: foreground,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _fileName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

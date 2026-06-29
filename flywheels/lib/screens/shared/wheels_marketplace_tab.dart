@@ -75,9 +75,14 @@ class _WheelsFilters {
 }
 
 class WheelsMarketplaceTab extends StatefulWidget {
-  const WheelsMarketplaceTab({super.key, this.allowSubmit = true});
+  const WheelsMarketplaceTab({
+    super.key,
+    this.allowSubmit = true,
+    this.onBuyingContactStarted,
+  });
 
   final bool allowSubmit;
+  final VoidCallback? onBuyingContactStarted;
 
   @override
   State<WheelsMarketplaceTab> createState() => _WheelsMarketplaceTabState();
@@ -105,7 +110,11 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
                     final listing = listings[index];
                     return _WheelsReelItem(
                       listing: listing,
-                      onTap: () => _showListingDetails(context, listing),
+                      onTap: () => _showListingDetails(
+                        context,
+                        listing,
+                        onBuyingContactStarted: widget.onBuyingContactStarted,
+                      ),
                     );
                   },
                 ),
@@ -967,7 +976,11 @@ class _WheelsEmptyState extends StatelessWidget {
   }
 }
 
-void _showListingDetails(BuildContext context, CarSaleListing listing) {
+void _showListingDetails(
+  BuildContext context,
+  CarSaleListing listing, {
+  VoidCallback? onBuyingContactStarted,
+}) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -1109,15 +1122,28 @@ void _showListingDetails(BuildContext context, CarSaleListing listing) {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () {
+                    final navigator = Navigator.of(context);
+                    final messenger = ScaffoldMessenger.of(context);
                     final sent = FlywheelsScope.read(
                       context,
                     ).sendBuyingInterest(listing);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
+                    if (sent) {
+                      navigator.pop();
+                      if (onBuyingContactStarted != null) {
+                        onBuyingContactStarted();
+                      } else {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Interest sent to owner.'),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    messenger.showSnackBar(
+                      const SnackBar(
                         content: Text(
-                          sent
-                              ? 'Interest sent to owner.'
-                              : 'Only customers can contact the owner here.',
+                          'Only customers can contact the owner here.',
                         ),
                       ),
                     );

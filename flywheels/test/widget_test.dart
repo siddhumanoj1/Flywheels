@@ -1,12 +1,13 @@
 import 'package:flywheels/app/app.dart';
 import 'package:flywheels/controllers/app_controller.dart';
 import 'package:flywheels/services/api_client.dart';
+import 'package:flywheels/widgets/speedometer_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('app boots into splash state', (tester) async {
     await tester.pumpWidget(const FlywheelsApp());
-    expect(find.text('FLYWHEELS AUTO'), findsOneWidget);
+    expect(find.byType(SpeedometerLogoLoader), findsOneWidget);
   });
 
   test(

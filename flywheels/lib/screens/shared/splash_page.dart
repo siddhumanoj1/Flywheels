@@ -1,5 +1,3 @@
-import 'package:flywheels/core/theme/app_theme.dart';
-import 'package:flywheels/widgets/brand_logo.dart';
 import 'package:flywheels/widgets/speedometer_loader.dart';
 import 'package:flutter/material.dart';
 
@@ -22,18 +20,7 @@ class SplashPage extends StatelessWidget {
               ),
             );
           },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SpeedometerLogoLoader(),
-              const SizedBox(height: 24),
-              BrandWordmark(
-                center: true,
-                titleColor: AppPalette.black,
-                subtitleColor: AppPalette.muted,
-              ),
-            ],
-          ),
+          child: const SpeedometerLogoLoader(),
         ),
       ),
     );

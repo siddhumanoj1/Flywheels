@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 44});
 
+  static const displayScale = 1.32 * 1.05 * 1.03;
+
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final displaySize = size * 1.32;
+    final displaySize = size * displayScale;
     return ClipRRect(
       borderRadius: BorderRadius.circular(displaySize * 0.24),
       child: Image.asset(
