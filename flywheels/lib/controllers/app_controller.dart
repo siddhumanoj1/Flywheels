@@ -1194,8 +1194,7 @@ class AppController extends ChangeNotifier {
         customer == null ||
         master == null ||
         job.masterMechanicId != masterMechanicId ||
-        (job.status != JobStatus.pickupDone &&
-            job.status != JobStatus.received &&
+        (job.status != JobStatus.received &&
             job.status != JobStatus.underInspection)) {
       return null;
     }
@@ -1538,22 +1537,12 @@ class AppController extends ChangeNotifier {
   void advanceJobStatus(String jobId) {
     final job = _jobs.where((item) => item.id == jobId).firstOrNull;
     if (job == null) return;
-    if (job.status == JobStatus.pickupDone) return;
     setJobStatus(jobId, job.status.next);
   }
 
-  void setJobStatus(
-    String jobId,
-    JobStatus status, {
-    bool allowPickupDoneReceipt = false,
-  }) {
+  void setJobStatus(String jobId, JobStatus status) {
     final index = _jobs.indexWhere((job) => job.id == jobId);
     if (index == -1) return;
-    if (_jobs[index].status == JobStatus.pickupDone &&
-        status != JobStatus.pickupDone &&
-        !(allowPickupDoneReceipt && status == JobStatus.received)) {
-      return;
-    }
     final startsTransit =
         status == JobStatus.pickupScheduled ||
         status == JobStatus.deliveryScheduled;
@@ -1862,14 +1851,8 @@ class AppController extends ChangeNotifier {
     final jobIndex = latestJob == null
         ? -1
         : _jobs.indexWhere((job) => job.id == latestJob.id);
-    final effectiveStatus =
-        status != null &&
-            jobIndex >= 0 &&
-            _jobs[jobIndex].status != JobStatus.pickupDone
-        ? status
-        : null;
-    if (effectiveStatus != null && jobIndex >= 0) {
-      _jobs[jobIndex] = _jobs[jobIndex].copyWith(status: effectiveStatus);
+    if (status != null && jobIndex >= 0) {
+      _jobs[jobIndex] = _jobs[jobIndex].copyWith(status: status);
     }
 
     _photoUpdates.insert(
@@ -1890,12 +1873,10 @@ class AppController extends ChangeNotifier {
       AppNotification(
         id: 'note-${now.millisecondsSinceEpoch + 1}',
         userId: car.userId,
-        title: effectiveStatus == null
-            ? 'New garage photos'
-            : 'Status photo update',
-        message: effectiveStatus == null
+        title: status == null ? 'New garage photos' : 'Status photo update',
+        message: status == null
             ? 'Fresh progress photos were added for ${car.carNumber}.'
-            : '${car.carNumber} is now ${effectiveStatus.label} with a photo update.',
+            : '${car.carNumber} is now ${status.label} with a photo update.',
         createdAt: now,
       ),
     );
@@ -1903,9 +1884,7 @@ class AppController extends ChangeNotifier {
       SupportMessage(
         id: 'msg-${now.millisecondsSinceEpoch + 2}',
         userId: car.userId,
-        topic: effectiveStatus == null
-            ? 'Garage photos'
-            : effectiveStatus.label,
+        topic: status == null ? 'Garage photos' : status.label,
         message: caption.trim().isEmpty
             ? 'Photo update shared from the garage.'
             : caption.trim(),
@@ -2005,13 +1984,7 @@ class AppController extends ChangeNotifier {
           }
           break;
         case DocumentType.jobCard:
-          if (relatedJob.status == JobStatus.pickupDone) {
-            setJobStatus(
-              relatedJob.id,
-              JobStatus.received,
-              allowPickupDoneReceipt: true,
-            );
-          } else if (relatedJob.status == JobStatus.received ||
+          if (relatedJob.status == JobStatus.received ||
               relatedJob.status == JobStatus.underInspection) {
             setJobStatus(relatedJob.id, JobStatus.underInspection);
           }

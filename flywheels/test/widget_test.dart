@@ -61,41 +61,6 @@ void main() {
     },
   );
 
-  test('job card is required to receive a pickup-done car', () {
-    final controller = AppController(apiClient: const _FakeApiClient())
-      ..session = const AppSession(
-        user: DemoSeed.ownerUser,
-        token: 'demo-owner-token',
-      );
-    addTearDown(controller.dispose);
-
-    controller.setJobStatus('job-1', JobStatus.pickupDone);
-    expect(
-      controller.jobs.firstWhere((job) => job.id == 'job-1').status,
-      JobStatus.pickupDone,
-    );
-
-    controller.setJobStatus('job-1', JobStatus.received);
-    expect(
-      controller.jobs.firstWhere((job) => job.id == 'job-1').status,
-      JobStatus.pickupDone,
-    );
-
-    final document = controller.createMasterJobCard(
-      jobId: 'job-1',
-      masterMechanicId: 'staff-master-1',
-      observations: 'Pickup inspection complete.',
-      items: const [],
-    );
-
-    expect(document, isNotNull);
-    expect(document!.type, DocumentType.jobCard);
-    expect(
-      controller.jobs.firstWhere((job) => job.id == 'job-1').status,
-      JobStatus.received,
-    );
-  });
-
   testWidgets('document studio opens a receipt preview for a new customer', (
     tester,
   ) async {

@@ -367,7 +367,11 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     }
     if (_items.isEmpty &&
         (_selectedType != DocumentType.jobCard || _inspectionMarks.isEmpty)) {
-      _showMessage('Add at least one line item before sending.');
+      _showMessage(
+        _selectedType == DocumentType.jobCard
+            ? 'Add at least one work item or vehicle mark before sending.'
+            : 'Add at least one line item before sending.',
+      );
       return null;
     }
     if (_selectedType == DocumentType.jobCard && _selectedCarId != null) {
@@ -376,11 +380,10 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       ).latestJobForCar(_selectedCarId!);
       final canCreateJobCard =
           activeJob != null &&
-          (activeJob.status == JobStatus.pickupDone ||
-              activeJob.status == JobStatus.received ||
+          (activeJob.status == JobStatus.received ||
               activeJob.status == JobStatus.underInspection);
       if (!canCreateJobCard) {
-        _showMessage('Job cards can be created after pickup is done.');
+        _showMessage('Job cards can be created after the vehicle is received.');
         return null;
       }
     }
@@ -462,7 +465,11 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     }
     if (_items.isEmpty &&
         (_selectedType != DocumentType.jobCard || _inspectionMarks.isEmpty)) {
-      _showMessage('Add at least one line item before creating a document.');
+      _showMessage(
+        _selectedType == DocumentType.jobCard
+            ? 'Add at least one work item or vehicle mark before creating the job card.'
+            : 'Add at least one line item before creating a document.',
+      );
       return false;
     }
     return true;
@@ -940,7 +947,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         : newCarReady;
     final canShowNotes =
         _hasSelectedDocumentType && hasCustomerStepValue && hasVehicleStepValue;
-    final canShowEditDetails = _hasParsedDocument;
+    final isJobCard = _selectedType == DocumentType.jobCard;
+    final canShowJobCardEditor = isJobCard && canShowNotes;
+    final canShowEditDetails = _hasParsedDocument || canShowJobCardEditor;
     final notesHint = selectedCar != null || !_useExistingCustomer
         ? 'Paste only customer notes or line items. Customer and vehicle details are already filled.'
         : 'Paste the vehicle, customer, and line items. The selected document type will be used automatically.';
@@ -1171,7 +1180,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
             ),
           ),
         ),
-        if (canShowNotes && !_hasParsedDocument) ...[
+        if (canShowNotes && !_hasParsedDocument && !isJobCard) ...[
           const SizedBox(height: 16),
           Card(
             child: Padding(
@@ -1231,7 +1240,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Edit details',
+                    isJobCard ? 'Job card details' : 'Edit details',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 16),
@@ -1349,7 +1358,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   const SizedBox(height: 12),
                   if (_items.isEmpty)
                     Text(
-                      'No items yet. Parse notes or add items manually.',
+                      isJobCard
+                          ? 'No work items yet. Add recommended work or mark vehicle areas.'
+                          : 'No items yet. Parse notes or add items manually.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ..._items.asMap().entries.map(
@@ -1394,7 +1405,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                   FilledButton.icon(
                     onPressed: _createDraftPreview,
                     icon: const Icon(Icons.description_rounded),
-                    label: const Text('Create document'),
+                    label: Text(
+                      isJobCard ? 'Create job card' : 'Create document',
+                    ),
                   ),
                 ],
               ),

@@ -207,7 +207,7 @@ class _StaffHomePageState extends State<_StaffHomePage> {
                               ScaffoldMessenger.of(this.context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                    'Job card is available after pickup is done and a master mechanic is assigned.',
+                                    'Job card is available after vehicle receipt.',
                                   ),
                                 ),
                               );
@@ -1422,12 +1422,9 @@ class _StaffCarsTabState extends State<_StaffCarsTab> {
                         AutomotiveControlButton(
                           icon: Icons.assignment_rounded,
                           label: 'Job card',
-                          active:
-                              job.status == JobStatus.pickupDone ||
-                              job.status == JobStatus.underInspection,
+                          active: job.status == JobStatus.underInspection,
                           onPressed:
-                              job.status == JobStatus.pickupDone ||
-                                  job.status == JobStatus.received ||
+                              job.status == JobStatus.received ||
                                   job.status == JobStatus.underInspection
                               ? () => widget.onCreateJobCard?.call(
                                   job,

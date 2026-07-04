@@ -3209,11 +3209,30 @@ class _CustomerChatTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final index = ChatChannel.values.indexOf(channel);
+    final controller = FlywheelsScope.of(context);
+    final userId = controller.session!.user.id;
+    final visibleChannels = [
+      ChatChannel.general,
+      for (final item in ChatChannel.values)
+        if (item != ChatChannel.general &&
+            controller.conversationForUser(userId, channel: item).isNotEmpty)
+          item,
+    ];
+    final effectiveChannel = visibleChannels.contains(channel)
+        ? channel
+        : ChatChannel.general;
+
+    if (effectiveChannel != channel) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onChannelChanged(effectiveChannel);
+      });
+    }
+
+    final index = visibleChannels.indexOf(effectiveChannel);
     return AppInnerTabs(
       currentIndex: index,
-      onChanged: (value) => onChannelChanged(ChatChannel.values[value]),
-      tabs: ChatChannel.values
+      onChanged: (value) => onChannelChanged(visibleChannels[value]),
+      tabs: visibleChannels
           .map(
             (item) => AppInnerTab(
               label: item.label,
