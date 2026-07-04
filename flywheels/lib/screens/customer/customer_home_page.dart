@@ -37,6 +37,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   final _chatMessageController = TextEditingController();
   late final PageController _pageController;
   int _currentIndex = 0;
+  int _homeTrackerReplayToken = 0;
   ChatChannel _customerChatChannel = ChatChannel.general;
   bool _pickingProfilePhoto = false;
 
@@ -386,7 +387,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Pickup location',
+                                  'Vehicle location',
                                   style: Theme.of(context).textTheme.titleLarge,
                                 ),
                                 const SizedBox(height: 3),
@@ -531,6 +532,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     final controller = FlywheelsScope.read(context);
     final addressController = TextEditingController();
     final existingJob = controller.latestJobForCar(car.id);
+    final schedulingDelivery =
+        existingJob?.status == JobStatus.completed ||
+        existingJob?.status == JobStatus.deliveryScheduled;
+    final tripLabel = schedulingDelivery ? 'delivery' : 'pickup';
+    final tripTitle = existingJob?.pickupRequired == true
+        ? 'Reschedule $tripLabel'
+        : 'Schedule $tripLabel';
     DateTime pickupTime =
         existingJob?.pickupTime ?? DateTime.now().add(const Duration(hours: 3));
     bool locationAccessGranted = existingJob?.locationAccessGranted ?? false;
@@ -662,9 +670,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  existingJob?.pickupRequired == true
-                                      ? 'Reschedule pickup'
-                                      : 'Schedule pickup',
+                                  tripTitle,
                                   style: Theme.of(context).textTheme.titleLarge,
                                 ),
                                 const SizedBox(height: 3),
@@ -750,19 +756,15 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                                 SnackBar(
                                   content: Text(
                                     sent
-                                        ? 'Pickup scheduled and WhatsApp opened.'
-                                        : 'Pickup scheduled. WhatsApp could not be opened.',
+                                        ? '${_sentenceCase(tripLabel)} scheduled and WhatsApp opened.'
+                                        : '${_sentenceCase(tripLabel)} scheduled. WhatsApp could not be opened.',
                                   ),
                                 ),
                               );
                             }
                           },
                           icon: const Icon(Icons.local_shipping_outlined),
-                          label: Text(
-                            existingJob?.pickupRequired == true
-                                ? 'Reschedule pickup'
-                                : 'Schedule pickup',
-                          ),
+                          label: Text(tripTitle),
                         ),
                       ),
                     ],
@@ -984,7 +986,10 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     if (index == 3) {
       controller.markConversationReadByCustomer(controller.session!.user.id);
     }
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      if (index == 0) _homeTrackerReplayToken += 1;
+    });
     if (_pageController.hasClients) {
       _pageController.animateToPage(
         index,
@@ -1006,7 +1011,17 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     if (index == 3) {
       controller.markConversationReadByCustomer(controller.session!.user.id);
     }
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      if (index == 0) _homeTrackerReplayToken += 1;
+    });
+  }
+
+  void _selectActiveCar(String carId) {
+    FlywheelsScope.read(context).setActiveCar(carId);
+    if (_currentIndex == 0) {
+      setState(() => _homeTrackerReplayToken += 1);
+    }
   }
 
   void _showCarHistorySheet(BuildContext context, CarProfile car) {
@@ -1279,7 +1294,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
             _CustomerCarStrip(
               cars: controller.cars,
               activeCarId: activeCar?.id,
-              onSelect: controller.setActiveCar,
+              onSelect: _selectActiveCar,
               onAddCar: () => _showAddCarSheet(context),
             ),
           Expanded(
@@ -1289,6 +1304,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
               children: [
                 _CustomerHomeTab(
                   activeCar: activeCar,
+                  trackerReplayToken: _homeTrackerReplayToken,
                   onRequestQuotation: (car) =>
                       _showQuotationRequestSheet(context, car),
                   onRequestImages: (car) => _showGaragePhotoSheet(context, car),
@@ -1457,7 +1473,7 @@ class _PickupVehiclePhotoSection extends StatelessWidget {
     final previewPath = photoPath ?? car.imageUrl;
     return _PickupPlannerSection(
       icon: Icons.photo_camera_outlined,
-      title: 'Pickup car photo',
+      title: 'Vehicle photo',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1510,7 +1526,7 @@ class _PickupVehiclePhotoSection extends StatelessWidget {
               ),
               if (onRemove != null)
                 IconButton.outlined(
-                  tooltip: 'Remove pickup photo',
+                  tooltip: 'Remove vehicle photo',
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
@@ -1617,7 +1633,7 @@ class _PickupLocationSection extends StatelessWidget {
         location?.mapUrl?.trim().isNotEmpty == true;
     return _PickupPlannerSection(
       icon: Icons.location_on_outlined,
-      title: 'Pickup location',
+      title: 'Vehicle location',
       trailing: hasLocation
           ? IconButton.outlined(
               tooltip: 'Clear map pin',
@@ -1659,7 +1675,7 @@ class _PickupLocationSection extends StatelessWidget {
             minLines: 2,
             maxLines: 3,
             decoration: const InputDecoration(
-              labelText: 'Pickup address',
+              labelText: 'Address',
               hintText: 'Flat, street, area, landmark',
             ),
           ),
@@ -1668,7 +1684,7 @@ class _PickupLocationSection extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             value: locationAccessGranted,
             activeThumbColor: AppPalette.red,
-            title: const Text('Share pickup location with garage'),
+            title: const Text('Share location with garage'),
             subtitle: const Text('Google Maps link included for routing.'),
             onChanged: onLocationAccessChanged,
           ),
@@ -1920,72 +1936,49 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
     );
   }
 
+  void _handleCarPageChanged(int index) {
+    setState(() => _pageIndex = index);
+    if (index >= widget.cars.length) return;
+
+    final carId = widget.cars[index].id;
+    if (carId != widget.activeCarId) {
+      widget.onSelect(carId);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final controller = FlywheelsScope.of(context);
-
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
       decoration: const BoxDecoration(
         color: AppPalette.white,
         border: Border(bottom: BorderSide(color: AppPalette.border)),
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Text('My cars', style: Theme.of(context).textTheme.titleMedium),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              IconButton.outlined(
-                onPressed: _pageIndex == 0
-                    ? null
-                    : () => _goToPage(_pageIndex - 1),
-                icon: const Icon(Icons.chevron_left_rounded),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 96,
-                  child: PageView.builder(
-                    controller: _pageController,
-                    padEnds: false,
-                    itemCount: _pageCount,
-                    onPageChanged: (index) =>
-                        setState(() => _pageIndex = index),
-                    itemBuilder: (context, index) {
-                      final isAddCard = index == widget.cars.length;
-                      if (isAddCard) {
-                        return _AddCarCard(onAddCar: widget.onAddCar);
-                      }
-                      final car = widget.cars[index];
-                      return _CustomerCarCard(
-                        car: car,
-                        statusLabel:
-                            controller
-                                .latestJobForCar(car.id)
-                                ?.status
-                                .label
-                                .toUpperCase() ??
-                            'READY FOR A QUOTATION REQUEST',
-                        isActive: car.id == widget.activeCarId,
-                        onSelect: widget.onSelect,
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.outlined(
-                onPressed: _pageIndex == _pageCount - 1
-                    ? null
-                    : () => _goToPage(_pageIndex + 1),
-                icon: const Icon(Icons.chevron_right_rounded),
-              ),
-            ],
+          _CustomerCarCarouselFrame(
+            canGoBack: _pageIndex > 0,
+            canGoForward: _pageIndex < _pageCount - 1,
+            onBack: () => _goToPage(_pageIndex - 1),
+            onForward: () => _goToPage(_pageIndex + 1),
+            child: PageView.builder(
+              controller: _pageController,
+              padEnds: false,
+              itemCount: _pageCount,
+              onPageChanged: _handleCarPageChanged,
+              itemBuilder: (context, index) {
+                final isAddCard = index == widget.cars.length;
+                if (isAddCard) {
+                  return _AddCarCard(onAddCar: widget.onAddCar);
+                }
+                final car = widget.cars[index];
+                return _CustomerCarCard(
+                  car: car,
+                  isActive: car.id == widget.activeCarId,
+                  onSelect: widget.onSelect,
+                );
+              },
+            ),
           ),
           if (widget.cars.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -2016,28 +2009,129 @@ class _CustomerCarStripState extends State<_CustomerCarStrip> {
   }
 }
 
+class _CustomerCarCarouselFrame extends StatelessWidget {
+  const _CustomerCarCarouselFrame({
+    required this.child,
+    required this.canGoBack,
+    required this.canGoForward,
+    required this.onBack,
+    required this.onForward,
+  });
+
+  final Widget child;
+  final bool canGoBack;
+  final bool canGoForward;
+  final VoidCallback onBack;
+  final VoidCallback onForward;
+
+  static const _arrowHitWidth = 50.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 118,
+      width: double.infinity,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(top: 6, bottom: 6, child: child),
+          Positioned(
+            left: 3,
+            top: 0,
+            bottom: 0,
+            width: _arrowHitWidth,
+            child: _CarouselMatrixArrowButton(
+              label: 'Previous car',
+              type: AppMatrixIcon.left,
+              enabled: canGoBack,
+              onTap: onBack,
+              alignment: Alignment.centerLeft,
+            ),
+          ),
+          Positioned(
+            right: 3,
+            top: 0,
+            bottom: 0,
+            width: _arrowHitWidth,
+            child: _CarouselMatrixArrowButton(
+              label: 'Next car',
+              type: AppMatrixIcon.right,
+              enabled: canGoForward,
+              onTap: onForward,
+              alignment: Alignment.centerRight,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CarouselMatrixArrowButton extends StatelessWidget {
+  const _CarouselMatrixArrowButton({
+    required this.label,
+    required this.type,
+    required this.enabled,
+    required this.onTap,
+    required this.alignment,
+  });
+
+  final String label;
+  final AppMatrixIcon type;
+  final bool enabled;
+  final VoidCallback onTap;
+  final Alignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: label,
+      button: true,
+      enabled: enabled,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: enabled ? onTap : null,
+        child: Align(
+          alignment: alignment,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.2,
+            child: SizedBox.square(
+              dimension: 41.4,
+              child: MatrixIconSurface(
+                type: type,
+                active: true,
+                showBackground: false,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CustomerCarCard extends StatelessWidget {
   const _CustomerCarCard({
     required this.car,
-    required this.statusLabel,
     required this.isActive,
     required this.onSelect,
   });
 
   final CarProfile car;
-  final String statusLabel;
   final bool isActive;
   final ValueChanged<String> onSelect;
 
   @override
   Widget build(BuildContext context) {
     final foreground = isActive ? AppPalette.white : AppPalette.black;
+    final titleStyle = Theme.of(context).textTheme.titleMedium;
+    final modelStyle = Theme.of(context).textTheme.labelSmall;
 
     return GestureDetector(
       onTap: () => onSelect(car.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(9),
+        padding: const EdgeInsets.fromLTRB(53, 11, 53, 11),
         decoration: BoxDecoration(
           color: isActive ? AppPalette.black : AppPalette.white,
           borderRadius: BorderRadius.circular(8),
@@ -2063,42 +2157,31 @@ class _CustomerCarCard extends StatelessWidget {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          statusLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: AppPalette.red,
-                                fontWeight: FontWeight.w900,
-                                fontStyle: FontStyle.italic,
-                              ),
-                        ),
-                        const SizedBox(height: 6),
                         Text(
                           car.carNumber,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: foreground,
-                                fontWeight: FontWeight.w900,
-                              ),
+                          style: titleStyle?.copyWith(
+                            color: foreground,
+                            fontSize: (titleStyle.fontSize ?? 16) * 1.02,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
+                        const SizedBox(height: 3),
                         Text(
                           car.model.toUpperCase(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: isActive
-                                    ? AppPalette.white.withValues(alpha: 0.86)
-                                    : AppPalette.black,
-                                fontWeight: FontWeight.w700,
-                              ),
+                          style: modelStyle?.copyWith(
+                            color: isActive
+                                ? AppPalette.white.withValues(alpha: 0.86)
+                                : AppPalette.black,
+                            fontSize: (modelStyle.fontSize ?? 11) * 1.02,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                        const Spacer(),
                       ],
                     ),
                   ),
@@ -2107,8 +2190,8 @@ class _CustomerCarCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     child: AppImage(
                       path: car.imageUrl,
-                      width: 78,
-                      height: 58,
+                      width: 93.8,
+                      height: 71.4,
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -2129,10 +2212,12 @@ class _AddCarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleStyle = Theme.of(context).textTheme.titleMedium;
+
     return GestureDetector(
       onTap: onAddCar,
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.fromLTRB(53, 12, 53, 12),
         decoration: BoxDecoration(
           color: AppPalette.white,
           borderRadius: BorderRadius.circular(8),
@@ -2144,8 +2229,8 @@ class _AddCarCard extends StatelessWidget {
               child: Row(
                 children: [
                   Container(
-                    width: 44,
-                    height: 44,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: AppPalette.black,
                       borderRadius: BorderRadius.circular(12),
@@ -2162,8 +2247,9 @@ class _AddCarCard extends StatelessWidget {
                       'ADD NEW CAR',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      style: titleStyle?.copyWith(
                         color: AppPalette.red,
+                        fontSize: (titleStyle.fontSize ?? 16) * 1.02,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -2181,6 +2267,7 @@ class _AddCarCard extends StatelessWidget {
 class _CustomerHomeTab extends StatelessWidget {
   const _CustomerHomeTab({
     required this.activeCar,
+    required this.trackerReplayToken,
     required this.onRequestQuotation,
     required this.onRequestImages,
     required this.onSchedulePickup,
@@ -2190,6 +2277,7 @@ class _CustomerHomeTab extends StatelessWidget {
   });
 
   final CarProfile? activeCar;
+  final int trackerReplayToken;
   final ValueChanged<CarProfile> onRequestQuotation;
   final ValueChanged<CarProfile> onRequestImages;
   final ValueChanged<CarProfile> onSchedulePickup;
@@ -2204,7 +2292,7 @@ class _CustomerHomeTab extends StatelessWidget {
         ? null
         : controller.latestJobForCar(activeCar!.id);
     final workflowState = job?.workflowState ?? CarWorkflowState.registered;
-    final transitInProgress = workflowState.isTransit;
+    final activeTransit = _hasActiveTransit(job);
     final photos = activeCar == null
         ? const <GaragePhotoUpdate>[]
         : controller.photoUpdatesForCar(activeCar!.id);
@@ -2221,6 +2309,20 @@ class _CustomerHomeTab extends StatelessWidget {
               document.paymentState != PaymentState.paid,
         )
         .firstOrNull;
+    final actions = activeCar == null
+        ? const <Widget>[]
+        : _customerActions(
+            activeCar!,
+            job,
+            documents: documents,
+            pendingDocument: pendingDocument,
+            unpaidInvoice: unpaidInvoice,
+          );
+    final showPhotoFeed =
+        photos.isNotEmpty &&
+        (workflowState == CarWorkflowState.underInspection ||
+            workflowState == CarWorkflowState.workInProgress ||
+            workflowState == CarWorkflowState.readyForDelivery);
 
     return ListView(
       key: const PageStorageKey('customer-home'),
@@ -2232,7 +2334,10 @@ class _CustomerHomeTab extends StatelessWidget {
             subtitle: 'Add a car or choose one above to view its timeline.',
           ),
         if (activeCar != null) ...[
-          GarageServiceTracker(status: job?.status ?? JobStatus.onRoad),
+          GarageServiceTracker(
+            status: job?.status ?? JobStatus.onRoad,
+            replayToken: 'customer-home:$trackerReplayToken:${activeCar!.id}',
+          ),
           const SizedBox(height: 12),
           _CustomerNextStepCard(
             car: activeCar!,
@@ -2245,26 +2350,19 @@ class _CustomerHomeTab extends StatelessWidget {
             onOpenChat: onOpenChat,
           ),
           const SizedBox(height: 12),
-          if (transitInProgress && job != null) _PickupStatusCard(job: job),
+          if (activeTransit && job != null) _PickupStatusCard(job: job),
           if (job == null)
             _EmptyStateCard(
               title: activeCar!.carNumber,
               subtitle:
                   'Registered in your garage account. Schedule pickup when you are ready.',
             ),
-          const SizedBox(height: 12),
-          Text(
-            'Available actions',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          GearboxActionGrid(
-            children: _customerActions(
-              activeCar!,
-              job,
-              transitInProgress: transitInProgress,
-            ),
-          ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('Actions', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            GearboxActionGrid(children: actions),
+          ],
           if (documents.isNotEmpty) ...[
             const SizedBox(height: 12),
             _CustomerDocumentDigest(
@@ -2272,7 +2370,7 @@ class _CustomerHomeTab extends StatelessWidget {
               onOpenBills: onOpenBills,
             ),
           ],
-          if (photos.isNotEmpty) ...[
+          if (showPhotoFeed) ...[
             const SizedBox(height: 12),
             _GaragePhotoFeed(photos: photos),
           ],
@@ -2284,8 +2382,11 @@ class _CustomerHomeTab extends StatelessWidget {
   List<Widget> _customerActions(
     CarProfile car,
     ServiceJob? job, {
-    required bool transitInProgress,
+    required List<ServiceDocument> documents,
+    required ServiceDocument? pendingDocument,
+    required ServiceDocument? unpaidInvoice,
   }) {
+    final hasDocuments = documents.isNotEmpty;
     if (job == null) {
       return [
         AutomotiveControlButton(
@@ -2294,51 +2395,10 @@ class _CustomerHomeTab extends StatelessWidget {
           active: true,
           onPressed: () => onSchedulePickup(car),
         ),
-        AutomotiveControlButton(
-          icon: Icons.history_rounded,
-          label: 'History',
-          onPressed: () => onOpenHistory(car),
-        ),
-        AutomotiveControlButton(
-          icon: Icons.receipt_long_rounded,
-          label: 'Bills',
-          onPressed: onOpenBills,
-        ),
       ];
     }
 
-    if (job.workflowState == CarWorkflowState.onRoad) {
-      return [
-        AutomotiveControlButton(
-          icon: Icons.receipt_long_outlined,
-          label: 'Quote',
-          active: true,
-          onPressed: () => onRequestQuotation(car),
-        ),
-        AutomotiveControlButton(
-          icon: Icons.local_shipping_outlined,
-          label: 'Pickup',
-          onPressed: () => onSchedulePickup(car),
-        ),
-        AutomotiveControlButton(
-          icon: Icons.chat_bubble_outline_rounded,
-          label: 'Chat',
-          onPressed: onOpenChat,
-        ),
-        AutomotiveControlButton(
-          icon: Icons.history_rounded,
-          label: 'History',
-          onPressed: () => onOpenHistory(car),
-        ),
-        AutomotiveControlButton(
-          icon: Icons.receipt_long_rounded,
-          label: 'Bills',
-          onPressed: onOpenBills,
-        ),
-      ];
-    }
-
-    if (transitInProgress) {
+    if (_hasActiveTransit(job)) {
       return [
         AutomotiveControlButton(
           icon: Icons.schedule_rounded,
@@ -2351,62 +2411,105 @@ class _CustomerHomeTab extends StatelessWidget {
           label: 'Chat',
           onPressed: onOpenChat,
         ),
+      ];
+    }
+
+    if (job.workflowState == CarWorkflowState.onRoad) {
+      return <Widget>[
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_outlined,
+          label: 'Quote',
+          active: true,
+          onPressed: () => onRequestQuotation(car),
+        ),
+        AutomotiveControlButton(
+          icon: Icons.local_shipping_outlined,
+          label: 'Pickup',
+          onPressed: () => onSchedulePickup(car),
+        ),
         AutomotiveControlButton(
           icon: Icons.history_rounded,
           label: 'History',
           onPressed: () => onOpenHistory(car),
         ),
+        if (hasDocuments)
+          AutomotiveControlButton(
+            icon: Icons.receipt_long_rounded,
+            label: 'Bills',
+            onPressed: onOpenBills,
+          ),
+      ];
+    }
+
+    if (job.workflowState == CarWorkflowState.pickupDone) {
+      return [
         AutomotiveControlButton(
-          icon: Icons.receipt_long_rounded,
-          label: 'Bills',
-          onPressed: onOpenBills,
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'Chat',
+          onPressed: onOpenChat,
         ),
       ];
     }
 
     final workflowState = job.workflowState;
+    final readyForDelivery = workflowState == CarWorkflowState.readyForDelivery;
+    if (readyForDelivery) {
+      return [
+        AutomotiveControlButton(
+          icon: Icons.local_shipping_outlined,
+          label: 'Delivery',
+          active: true,
+          onPressed: () => onSchedulePickup(car),
+        ),
+        if (unpaidInvoice != null || pendingDocument != null || hasDocuments)
+          AutomotiveControlButton(
+            icon: Icons.receipt_long_rounded,
+            label: unpaidInvoice == null ? 'Docs' : 'Invoice',
+            active: unpaidInvoice != null || pendingDocument != null,
+            onPressed: onOpenBills,
+          ),
+        AutomotiveControlButton(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'Chat',
+          onPressed: onOpenChat,
+        ),
+      ];
+    }
+
     final canRequestQuote =
         workflowState == CarWorkflowState.received ||
         workflowState == CarWorkflowState.underInspection;
     final canRequestImages =
         workflowState == CarWorkflowState.underInspection ||
         workflowState == CarWorkflowState.workInProgress;
-    final readyForDelivery = workflowState == CarWorkflowState.readyForDelivery;
-    return [
-      AutomotiveControlButton(
-        icon: Icons.receipt_long_outlined,
-        label: 'Quote',
-        active: canRequestQuote,
-        onPressed: canRequestQuote ? () => onRequestQuotation(car) : null,
-      ),
-      AutomotiveControlButton(
-        icon: Icons.photo_camera_outlined,
-        label: 'Images',
-        active: canRequestImages,
-        onPressed: canRequestImages ? () => onRequestImages(car) : null,
-      ),
+
+    return <Widget>[
+      if (canRequestQuote)
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_outlined,
+          label: 'Quote',
+          active: true,
+          onPressed: () => onRequestQuotation(car),
+        ),
+      if (canRequestImages)
+        AutomotiveControlButton(
+          icon: Icons.photo_camera_outlined,
+          label: 'Images',
+          active: true,
+          onPressed: () => onRequestImages(car),
+        ),
       AutomotiveControlButton(
         icon: Icons.chat_bubble_outline_rounded,
         label: 'Chat',
         onPressed: onOpenChat,
       ),
-      AutomotiveControlButton(
-        icon: Icons.history_rounded,
-        label: 'History',
-        onPressed: () => onOpenHistory(car),
-      ),
-      AutomotiveControlButton(
-        icon: Icons.receipt_long_rounded,
-        label: 'Bills',
-        active: readyForDelivery,
-        onPressed: onOpenBills,
-      ),
-      AutomotiveControlButton(
-        icon: Icons.local_shipping_outlined,
-        label: 'Delivery',
-        active: readyForDelivery,
-        onPressed: readyForDelivery ? () => onSchedulePickup(car) : null,
-      ),
+      if (hasDocuments)
+        AutomotiveControlButton(
+          icon: Icons.receipt_long_rounded,
+          label: pendingDocument == null ? 'Docs' : 'Review',
+          active: pendingDocument != null || unpaidInvoice != null,
+          onPressed: onOpenBills,
+        ),
     ];
   }
 }
@@ -2491,24 +2594,29 @@ class _CustomerNextStepCard extends StatelessWidget {
       );
     }
     final workflowState = job!.workflowState;
-    if (workflowState.isTransit) {
-      final isDelivery =
-          workflowState == CarWorkflowState.deliveryRequested ||
-          workflowState == CarWorkflowState.deliveryAssigned;
+    if (_hasActiveTransit(job)) {
+      final isDelivery = _isDeliveryTransit(workflowState);
+      final requested = job!.pickupState == PickupState.requested;
       return _CustomerNextStepData(
         icon: Icons.schedule_rounded,
-        title: job!.pickupState == PickupState.requested
-            ? isDelivery
-                  ? 'Delivery requested'
-                  : 'Pickup requested'
-            : isDelivery
-            ? 'Delivery person assigned'
-            : 'Pickup person assigned',
+        title: requested
+            ? '${_sentenceCase(isDelivery ? 'delivery' : 'pickup')} requested'
+            : '${_sentenceCase(isDelivery ? 'delivery' : 'pickup')} assigned',
         subtitle: job!.pickupPersonName == null
             ? 'Garage will assign a ${isDelivery ? 'delivery' : 'pickup'} person soon. You can reschedule if needed.'
             : '${job!.pickupPersonName} will ${isDelivery ? 'deliver' : 'pick up'} the car at ${formatDateTime(job!.pickupTime)}.',
-        tooltip: 'Reschedule pickup',
+        tooltip: 'Reschedule ${isDelivery ? 'delivery' : 'pickup'}',
         onTap: () => onSchedulePickup(car),
+      );
+    }
+    if (workflowState == CarWorkflowState.pickupDone) {
+      return _CustomerNextStepData(
+        icon: Icons.task_alt_rounded,
+        title: 'Pickup completed',
+        subtitle:
+            'Your car has reached the garage. The team will check it in before inspection starts.',
+        tooltip: 'Open chat',
+        onTap: onOpenChat,
       );
     }
     if (pendingDocument != null) {
@@ -2529,6 +2637,16 @@ class _CustomerNextStepCard extends StatelessWidget {
         onTap: onOpenBills,
       );
     }
+    if (workflowState == CarWorkflowState.readyForDelivery) {
+      return _CustomerNextStepData(
+        icon: Icons.local_shipping_outlined,
+        title: 'Ready for delivery',
+        subtitle:
+            'Service is complete. Schedule delivery when you are ready to receive the car.',
+        tooltip: 'Schedule delivery',
+        onTap: () => onSchedulePickup(car),
+      );
+    }
     if (workflowState == CarWorkflowState.onRoad) {
       return _CustomerNextStepData(
         icon: Icons.route_rounded,
@@ -2545,6 +2663,16 @@ class _CustomerNextStepCard extends StatelessWidget {
         title: 'Inspection in progress',
         subtitle:
             'The garage can share photos and prepare quotation or job card.',
+        tooltip: 'Open chat',
+        onTap: onOpenChat,
+      );
+    }
+    if (workflowState == CarWorkflowState.received) {
+      return _CustomerNextStepData(
+        icon: Icons.home_repair_service_outlined,
+        title: 'Vehicle received',
+        subtitle:
+            'Your car is checked in at the garage and will move into inspection.',
         tooltip: 'Open chat',
         onTap: onOpenChat,
       );
@@ -2582,6 +2710,25 @@ class _CustomerNextStepData {
   final String subtitle;
   final String tooltip;
   final VoidCallback onTap;
+}
+
+bool _hasActiveTransit(ServiceJob? job) {
+  if (job == null || !job.pickupRequired) return false;
+  final state = job.workflowState;
+  return state == CarWorkflowState.pickupRequested ||
+      state == CarWorkflowState.pickupAssigned ||
+      state == CarWorkflowState.deliveryRequested ||
+      state == CarWorkflowState.deliveryAssigned;
+}
+
+bool _isDeliveryTransit(CarWorkflowState state) {
+  return state == CarWorkflowState.deliveryRequested ||
+      state == CarWorkflowState.deliveryAssigned;
+}
+
+String _sentenceCase(String value) {
+  if (value.isEmpty) return value;
+  return '${value.substring(0, 1).toUpperCase()}${value.substring(1)}';
 }
 
 class _CustomerDocumentDigest extends StatelessWidget {
@@ -2644,14 +2791,16 @@ class _PickupStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = job.workflowState;
-    final isDelivery =
-        state == CarWorkflowState.deliveryRequested ||
-        state == CarWorkflowState.deliveryAssigned;
+    final isDelivery = _isDeliveryTransit(state);
+    final tripLabel = isDelivery ? 'delivery' : 'pickup';
     final mapUri = _pickupMapUriForJob(job);
     final assignee = job.pickupPersonName == null
-        ? 'Garage will assign a ${isDelivery ? 'delivery' : 'pickup'} person'
+        ? 'Garage will assign a $tripLabel person'
         : '${job.pickupPersonName}'
               '${job.pickupPersonPhone == null || job.pickupPersonPhone!.isEmpty ? '' : ' | ${job.pickupPersonPhone}'}';
+    final title = job.pickupState == PickupState.assigned
+        ? '${_sentenceCase(tripLabel)} assigned'
+        : '${_sentenceCase(tripLabel)} requested';
 
     return Card(
       child: Padding(
@@ -2665,9 +2814,7 @@ class _PickupStatusCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    isDelivery
-                        ? 'Delivery ${job.pickupState.label}'
-                        : 'Pickup ${job.pickupState.label}',
+                    title,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -2685,23 +2832,13 @@ class _PickupStatusCard extends StatelessWidget {
                 job.pickupAddress!,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            if (job.pickupPhotoPath != null &&
-                job.pickupPhotoPath!.trim().isNotEmpty) ...[
-              const SizedBox(height: 10),
-              AppImage(
-                path: job.pickupPhotoPath!,
-                width: double.infinity,
-                height: 132,
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ],
             if (mapUri != null) ...[
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () =>
                     launchUrl(mapUri, mode: LaunchMode.externalApplication),
                 icon: const Icon(Icons.map_outlined),
-                label: const Text('Open pickup map'),
+                label: Text('Open $tripLabel map'),
               ),
             ],
           ],
@@ -2746,7 +2883,7 @@ class _GaragePhotoFeed extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Live photo updates',
+                    'Garage photos',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),

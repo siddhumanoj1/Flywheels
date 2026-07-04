@@ -8,6 +8,7 @@ import 'package:flywheels/widgets/app_bottom_nav_bar.dart';
 import 'package:flywheels/widgets/app_image.dart';
 import 'package:flywheels/widgets/automotive_widgets.dart';
 import 'package:flywheels/widgets/brand_logo.dart';
+import 'package:flywheels/widgets/car_anatomy_inspection.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -112,84 +113,116 @@ class _StaffHomePageState extends State<_StaffHomePage> {
 
   Future<void> _showJobCardSheet(ServiceJob job, StaffProfile staff) async {
     final controller = FlywheelsScope.read(context);
+    final car = controller.carForJob(job);
     final observationController = TextEditingController();
     final actionController = TextEditingController();
+    var inspectionMarks = <VehicleInspectionMark>[];
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.of(context).viewInsets.bottom + 20,
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Prepare job card',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: observationController,
-                  minLines: 3,
-                  maxLines: 5,
-                  decoration: const InputDecoration(
-                    labelText: 'Inspection observations',
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Prepare job card',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: observationController,
+                        minLines: 3,
+                        maxLines: 5,
+                        decoration: const InputDecoration(
+                          labelText: 'Inspection observations',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: actionController,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: 'Recommended work',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Vehicle inspection',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 10),
+                      CarAnatomyInspectionEditor(
+                        marks: inspectionMarks,
+                        initialBodyType: vehicleBodyTypeForModel(
+                          car?.model ?? '',
+                        ),
+                        onChanged: (marks) =>
+                            setSheetState(() => inspectionMarks = marks),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            final document = controller.createMasterJobCard(
+                              jobId: job.id,
+                              masterMechanicId: staff.id,
+                              observations: observationController.text,
+                              inspectionMarks: inspectionMarks,
+                              items: [
+                                DocumentLineItem(
+                                  description:
+                                      observationController.text.trim().isEmpty
+                                      ? 'Inspection observations'
+                                      : observationController.text.trim(),
+                                  quantity: 1,
+                                  unitPrice: 0,
+                                  total: 0,
+                                ),
+                                if (actionController.text.trim().isNotEmpty)
+                                  DocumentLineItem(
+                                    description: actionController.text.trim(),
+                                    quantity: 1,
+                                    unitPrice: 0,
+                                    total: 0,
+                                  ),
+                              ],
+                            );
+                            Navigator.of(context).pop();
+                            if (document == null) {
+                              ScaffoldMessenger.of(this.context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Job card is available after pickup is done and a master mechanic is assigned.',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.assignment_rounded),
+                          label: const Text('Send job card to owner'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: actionController,
-                  minLines: 2,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Recommended work',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      controller.createMasterJobCard(
-                        jobId: job.id,
-                        masterMechanicId: staff.id,
-                        observations: observationController.text,
-                        items: [
-                          DocumentLineItem(
-                            description:
-                                observationController.text.trim().isEmpty
-                                ? 'Inspection observations'
-                                : observationController.text.trim(),
-                            quantity: 1,
-                            unitPrice: 0,
-                            total: 0,
-                          ),
-                          if (actionController.text.trim().isNotEmpty)
-                            DocumentLineItem(
-                              description: actionController.text.trim(),
-                              quantity: 1,
-                              unitPrice: 0,
-                              total: 0,
-                            ),
-                        ],
-                      );
-                      Navigator.of(context).pop();
-                    },
-                    icon: const Icon(Icons.assignment_rounded),
-                    label: const Text('Send job card to owner'),
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1389,8 +1422,18 @@ class _StaffCarsTabState extends State<_StaffCarsTab> {
                         AutomotiveControlButton(
                           icon: Icons.assignment_rounded,
                           label: 'Job card',
-                          onPressed: () =>
-                              widget.onCreateJobCard?.call(job, widget.staff),
+                          active:
+                              job.status == JobStatus.pickupDone ||
+                              job.status == JobStatus.underInspection,
+                          onPressed:
+                              job.status == JobStatus.pickupDone ||
+                                  job.status == JobStatus.received ||
+                                  job.status == JobStatus.underInspection
+                              ? () => widget.onCreateJobCard?.call(
+                                  job,
+                                  widget.staff,
+                                )
+                              : null,
                         ),
                         AutomotiveControlButton(
                           icon: Icons.group_add_outlined,

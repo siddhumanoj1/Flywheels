@@ -1,6 +1,7 @@
 import 'package:flywheels/core/theme/app_theme.dart';
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
+import 'package:flywheels/widgets/car_anatomy_inspection.dart';
 import 'package:flutter/material.dart';
 
 class DocumentTemplatePreview extends StatelessWidget {
@@ -13,6 +14,7 @@ class DocumentTemplatePreview extends StatelessWidget {
     required this.vehicleNumber,
     required this.carModel,
     required this.items,
+    this.inspectionMarks = const [],
     this.padding = const EdgeInsets.all(28),
   });
 
@@ -26,6 +28,7 @@ class DocumentTemplatePreview extends StatelessWidget {
   final String vehicleNumber;
   final String carModel;
   final List<DocumentLineItem> items;
+  final List<VehicleInspectionMark> inspectionMarks;
   final EdgeInsets padding;
 
   double get total => items.fold<double>(0, (sum, item) => sum + item.total);
@@ -46,6 +49,7 @@ class DocumentTemplatePreview extends StatelessWidget {
             vehicleNumber: vehicleNumber,
             carModel: carModel,
             items: items,
+            inspectionMarks: inspectionMarks,
             total: total,
             padding: padding,
           ),
@@ -64,6 +68,7 @@ class _TemplatePage extends StatelessWidget {
     required this.vehicleNumber,
     required this.carModel,
     required this.items,
+    required this.inspectionMarks,
     required this.total,
     required this.padding,
   });
@@ -75,6 +80,7 @@ class _TemplatePage extends StatelessWidget {
   final String vehicleNumber;
   final String carModel;
   final List<DocumentLineItem> items;
+  final List<VehicleInspectionMark> inspectionMarks;
   final double total;
   final EdgeInsets padding;
 
@@ -210,7 +216,19 @@ class _TemplatePage extends StatelessWidget {
                 const SizedBox(height: 18),
                 Expanded(
                   child: SingleChildScrollView(
-                    child: _TemplateItemsTable(items: items),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (inspectionMarks.isNotEmpty) ...[
+                          CarAnatomyInspectionReport(
+                            marks: inspectionMarks,
+                            panelHeight: 120,
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                        _TemplateItemsTable(items: items),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 18),

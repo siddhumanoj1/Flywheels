@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:flywheels/core/utils/formatters.dart';
 import 'package:flywheels/models/app_models.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +17,8 @@ class DocumentPdfExportResult {
   final String fileName;
 }
 
+const double _anatomySvgAspectRatio = 810 / 1012.49997;
+
 abstract final class DocumentPdfExportService {
   static Future<DocumentPdfExportResult> exportDocument({
     required ServiceDocument document,
@@ -31,6 +34,7 @@ abstract final class DocumentPdfExportService {
         vehicleNumber: car?.carNumber ?? 'Vehicle',
         carModel: car?.model ?? 'N/A',
         items: document.items,
+        inspectionMarks: document.inspectionMarks,
       ),
     );
   }
@@ -48,6 +52,7 @@ abstract final class DocumentPdfExportService {
         vehicleNumber: draft.vehicleNumber,
         carModel: draft.carModel,
         items: draft.items,
+        inspectionMarks: draft.inspectionMarks,
       ),
     );
   }
@@ -60,6 +65,7 @@ abstract final class DocumentPdfExportService {
       'assets/branding/flywheels-logo.png',
     );
     final logo = pw.MemoryImage(logoBytes.buffer.asUint8List());
+    final anatomySvgs = await _loadAnatomySvgs(data.inspectionMarks);
 
     pdf.addPage(
       pw.MultiPage(
@@ -68,7 +74,7 @@ abstract final class DocumentPdfExportService {
           margin: const pw.EdgeInsets.fromLTRB(86, 28, 28, 28),
           buildBackground: (context) => _sideTitle(data),
         ),
-        build: (context) => _templateContent(data, logo),
+        build: (context) => _templateContent(data, logo, anatomySvgs),
       ),
     );
 
@@ -94,6 +100,7 @@ abstract final class DocumentPdfExportService {
   static List<pw.Widget> _templateContent(
     _DocumentPrintData data,
     pw.ImageProvider logo,
+    Map<String, String> anatomySvgs,
   ) {
     return [
       _header(logo),
@@ -128,6 +135,10 @@ abstract final class DocumentPdfExportService {
       pw.Text(data.carModelOrFallback),
       pw.Text(data.vehicleNumberOrFallback),
       pw.SizedBox(height: 18),
+      if (data.inspectionMarks.isNotEmpty) ...[
+        _inspectionMap(data.inspectionMarks, anatomySvgs),
+        pw.SizedBox(height: 18),
+      ],
       _itemsTable(data.items),
       pw.SizedBox(height: 18),
       pw.Container(height: 2, color: PdfColors.red),
@@ -172,6 +183,236 @@ abstract final class DocumentPdfExportService {
       pw.SizedBox(height: 26),
       _footer(),
     ];
+  }
+
+  static Future<Map<String, String>> _loadAnatomySvgs(
+    List<VehicleInspectionMark> marks,
+  ) async {
+    final paths = <String>{};
+    for (final bodyType in marks.map((mark) => mark.bodyType).toSet()) {
+      for (final view in VehicleViewAngle.values) {
+        paths.add(vehicleAnatomyAssetPath(bodyType, view));
+      }
+    }
+    final svgs = <String, String>{};
+    for (final path in paths) {
+      try {
+        svgs[path] = await rootBundle.loadString(path);
+      } catch (_) {}
+    }
+    return svgs;
+  }
+
+  static pw.Widget _inspectionMap(
+    List<VehicleInspectionMark> marks,
+    Map<String, String> anatomySvgs,
+  ) {
+    final groups = _groupInspectionMarksByBody(marks);
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'Inspection Map',
+          style: pw.TextStyle(
+            color: PdfColors.red,
+            fontWeight: pw.FontWeight.bold,
+            fontSize: 10,
+          ),
+        ),
+        pw.SizedBox(height: 8),
+        ...groups.map((group) {
+          return pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 10),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  group.bodyType.label,
+                  style: pw.TextStyle(
+                    fontSize: 9,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+                _inspectionPlate(group.bodyType, group.marks, anatomySvgs),
+                pw.SizedBox(height: 6),
+                ...group.marks.map(
+                  (mark) => pw.Text(
+                    mark.summary,
+                    style: const pw.TextStyle(fontSize: 8),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  static pw.Widget _inspectionPlate(
+    VehicleBodyType bodyType,
+    List<VehicleInspectionMark> marks,
+    Map<String, String> anatomySvgs,
+  ) {
+    const width = 430.0;
+    const gap = 5.0;
+    const cellWidth = (width - gap * 2) / 3;
+    const cellHeight = cellWidth * 0.72;
+
+    return pw.SizedBox(
+      width: width,
+      child: pw.Column(
+        children: [
+          pw.Row(
+            children: [
+              _inspectionPlatePanel(
+                bodyType: bodyType,
+                view: VehicleViewAngle.top,
+                marks: marks,
+                anatomySvgs: anatomySvgs,
+                width: cellWidth,
+                height: cellHeight,
+              ),
+              pw.SizedBox(width: gap),
+              _inspectionPlatePanel(
+                bodyType: bodyType,
+                view: VehicleViewAngle.front,
+                marks: marks,
+                anatomySvgs: anatomySvgs,
+                width: cellWidth,
+                height: cellHeight,
+              ),
+              pw.SizedBox(width: gap),
+              _inspectionPlatePanel(
+                bodyType: bodyType,
+                view: VehicleViewAngle.right,
+                marks: marks,
+                anatomySvgs: anatomySvgs,
+                width: cellWidth,
+                height: cellHeight,
+              ),
+            ],
+          ),
+          pw.SizedBox(height: gap),
+          pw.Row(
+            children: [
+              _inspectionPlatePanel(
+                bodyType: bodyType,
+                view: VehicleViewAngle.back,
+                marks: marks,
+                anatomySvgs: anatomySvgs,
+                width: cellWidth,
+                height: cellHeight,
+              ),
+              pw.SizedBox(width: gap),
+              _inspectionPlatePanel(
+                bodyType: bodyType,
+                view: VehicleViewAngle.left,
+                marks: marks,
+                anatomySvgs: anatomySvgs,
+                width: cellWidth,
+                height: cellHeight,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _inspectionPlatePanel({
+    required VehicleBodyType bodyType,
+    required VehicleViewAngle view,
+    required List<VehicleInspectionMark> marks,
+    required Map<String, String> anatomySvgs,
+    required double width,
+    required double height,
+  }) {
+    final path = vehicleAnatomyAssetPath(bodyType, view);
+    final svg = anatomySvgs[path];
+    final viewMarks = marks.where((mark) => mark.view == view).toList();
+    if (svg == null) {
+      return pw.SizedBox(
+        width: width,
+        height: height,
+        child: pw.Center(
+          child: pw.Text(
+            'Vehicle body map unavailable.',
+            style: const pw.TextStyle(fontSize: 7),
+          ),
+        ),
+      );
+    }
+    return _inspectionSvgPanel(
+      svg,
+      viewMarks,
+      bodyType: bodyType,
+      view: view,
+      width: width,
+      height: height,
+    );
+  }
+
+  static pw.Widget _inspectionSvgPanel(
+    String svg,
+    List<VehicleInspectionMark> marks, {
+    required VehicleBodyType bodyType,
+    required VehicleViewAngle view,
+    required double width,
+    required double height,
+  }) {
+    const markerSize = 12.0;
+    final cropRect = _vehicleDrawingRect(bodyType, view);
+    final geometry = _croppedGeometry(cropRect, Size(width, height));
+    return pw.SizedBox(
+      width: width,
+      height: height,
+      child: pw.ClipRect(
+        child: pw.Stack(
+          children: [
+            pw.Positioned(
+              left: geometry.fullSvgOffset.dx,
+              top: geometry.fullSvgOffset.dy,
+              child: pw.SizedBox(
+                width: geometry.fullSvgSize.width,
+                height: geometry.fullSvgSize.height,
+                child: pw.SvgImage(svg: svg, fit: pw.BoxFit.fill),
+              ),
+            ),
+            ...marks.map((mark) {
+              final point = geometry.boxPointForSvgPoint(
+                Offset(mark.x, mark.y),
+              );
+              return pw.Positioned(
+                left: point.dx - markerSize / 2,
+                top: point.dy - markerSize / 2,
+                child: pw.SizedBox(
+                  width: markerSize,
+                  height: markerSize,
+                  child: pw.Container(
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.red,
+                      borderRadius: pw.BorderRadius.circular(markerSize),
+                      border: pw.Border.all(color: PdfColors.white, width: 1.2),
+                    ),
+                    alignment: pw.Alignment.center,
+                    child: pw.Text(
+                      mark.sequence.toString(),
+                      style: pw.TextStyle(
+                        color: PdfColors.white,
+                        fontSize: 7,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
   }
 
   static pw.Widget _sideTitle(_DocumentPrintData data) {
@@ -444,6 +685,120 @@ abstract final class DocumentPdfExportService {
   }
 }
 
+Rect _vehicleBodyHitRect(VehicleBodyType bodyType, VehicleViewAngle view) {
+  switch (view) {
+    case VehicleViewAngle.left:
+    case VehicleViewAngle.right:
+      switch (bodyType) {
+        case VehicleBodyType.hatchback:
+          return const Rect.fromLTRB(0.04, 0.31, 0.96, 0.69);
+        case VehicleBodyType.sedan:
+          return const Rect.fromLTRB(0.04, 0.35, 0.96, 0.65);
+        case VehicleBodyType.suv:
+          return const Rect.fromLTRB(0.04, 0.33, 0.96, 0.67);
+      }
+    case VehicleViewAngle.top:
+      switch (bodyType) {
+        case VehicleBodyType.hatchback:
+          return const Rect.fromLTRB(0.05, 0.28, 0.95, 0.68);
+        case VehicleBodyType.sedan:
+          return const Rect.fromLTRB(0.05, 0.32, 0.95, 0.68);
+        case VehicleBodyType.suv:
+          return const Rect.fromLTRB(0.05, 0.22, 0.95, 0.67);
+      }
+    case VehicleViewAngle.front:
+    case VehicleViewAngle.back:
+      switch (bodyType) {
+        case VehicleBodyType.hatchback:
+          return view == VehicleViewAngle.front
+              ? const Rect.fromLTRB(0.15, 0.24, 0.85, 0.86)
+              : const Rect.fromLTRB(0.15, 0.17, 0.85, 0.86);
+        case VehicleBodyType.sedan:
+          return view == VehicleViewAngle.front
+              ? const Rect.fromLTRB(0.16, 0.19, 0.84, 0.82)
+              : const Rect.fromLTRB(0.16, 0.16, 0.84, 0.84);
+        case VehicleBodyType.suv:
+          return view == VehicleViewAngle.front
+              ? const Rect.fromLTRB(0.12, 0.12, 0.88, 0.92)
+              : const Rect.fromLTRB(0.12, 0.10, 0.88, 0.93);
+      }
+  }
+}
+
+Rect _vehicleDrawingRect(VehicleBodyType bodyType, VehicleViewAngle view) {
+  final hitRect = _vehicleBodyHitRect(bodyType, view);
+  switch (view) {
+    case VehicleViewAngle.front:
+    case VehicleViewAngle.back:
+      return _expandUnitRect(hitRect, horizontal: 0.08, vertical: 0.045);
+    case VehicleViewAngle.left:
+    case VehicleViewAngle.right:
+    case VehicleViewAngle.top:
+      return _expandUnitRect(hitRect, horizontal: 0.04, vertical: 0.035);
+  }
+}
+
+Rect _expandUnitRect(
+  Rect rect, {
+  required double horizontal,
+  required double vertical,
+}) {
+  return Rect.fromLTRB(
+    (rect.left - horizontal).clamp(0.0, 1.0).toDouble(),
+    (rect.top - vertical).clamp(0.0, 1.0).toDouble(),
+    (rect.right + horizontal).clamp(0.0, 1.0).toDouble(),
+    (rect.bottom + vertical).clamp(0.0, 1.0).toDouble(),
+  );
+}
+
+_PdfCroppedGeometry _croppedGeometry(Rect cropRect, Size size) {
+  if (size.width <= 0 || size.height <= 0) {
+    return _PdfCroppedGeometry(
+      fullSvgSize: Size.zero,
+      fullSvgOffset: Offset.zero,
+    );
+  }
+  final cropSourceWidth = cropRect.width * _anatomySvgAspectRatio;
+  final cropSourceHeight = cropRect.height;
+  final widthScale = size.width / cropSourceWidth;
+  final heightScale = size.height / cropSourceHeight;
+  final scale = widthScale < heightScale ? widthScale : heightScale;
+  final fittedCropSize = Size(
+    cropSourceWidth * scale,
+    cropSourceHeight * scale,
+  );
+  final fullSvgSize = Size(
+    fittedCropSize.width / cropRect.width,
+    fittedCropSize.height / cropRect.height,
+  );
+  final fullSvgOffset = Offset(
+    (size.width - fittedCropSize.width) / 2 - cropRect.left * fullSvgSize.width,
+    (size.height - fittedCropSize.height) / 2 -
+        cropRect.top * fullSvgSize.height,
+  );
+  return _PdfCroppedGeometry(
+    fullSvgSize: fullSvgSize,
+    fullSvgOffset: fullSvgOffset,
+  );
+}
+
+class _PdfCroppedGeometry {
+  const _PdfCroppedGeometry({
+    required this.fullSvgSize,
+    required this.fullSvgOffset,
+  });
+
+  final Size fullSvgSize;
+  final Offset fullSvgOffset;
+
+  Offset boxPointForSvgPoint(Offset svgPoint) {
+    return Offset(
+      fullSvgOffset.dx + svgPoint.dx * fullSvgSize.width,
+      fullSvgOffset.dy + svgPoint.dy * fullSvgSize.height,
+    );
+  }
+}
+
 class _DocumentPrintData {
   const _DocumentPrintData({
     required this.type,
@@ -453,6 +808,7 @@ class _DocumentPrintData {
     required this.vehicleNumber,
     required this.carModel,
     required this.items,
+    required this.inspectionMarks,
   });
 
   final DocumentType type;
@@ -462,6 +818,7 @@ class _DocumentPrintData {
   final String vehicleNumber;
   final String carModel;
   final List<DocumentLineItem> items;
+  final List<VehicleInspectionMark> inspectionMarks;
 
   double get total => items.fold<double>(0, (sum, item) => sum + item.total);
   String get documentNumberOrDraft =>
@@ -470,4 +827,34 @@ class _DocumentPrintData {
       vehicleNumber.trim().isEmpty ? 'N/A' : vehicleNumber.trim();
   String get carModelOrFallback =>
       carModel.trim().isEmpty ? 'N/A' : carModel.trim();
+}
+
+class _PdfInspectionMarkBodyGroup {
+  const _PdfInspectionMarkBodyGroup({
+    required this.bodyType,
+    required this.marks,
+  });
+
+  final VehicleBodyType bodyType;
+  final List<VehicleInspectionMark> marks;
+}
+
+List<_PdfInspectionMarkBodyGroup> _groupInspectionMarksByBody(
+  List<VehicleInspectionMark> marks,
+) {
+  final groups = <_PdfInspectionMarkBodyGroup>[];
+  for (final mark in marks) {
+    final index = groups.indexWhere((group) => group.bodyType == mark.bodyType);
+    if (index == -1) {
+      groups.add(
+        _PdfInspectionMarkBodyGroup(bodyType: mark.bodyType, marks: [mark]),
+      );
+    } else {
+      groups[index].marks.add(mark);
+    }
+  }
+  for (final group in groups) {
+    group.marks.sort((left, right) => left.sequence.compareTo(right.sequence));
+  }
+  return groups;
 }

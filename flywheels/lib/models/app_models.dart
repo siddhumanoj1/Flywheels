@@ -64,7 +64,7 @@ extension JobStatusX on JobStatus {
       case JobStatus.underInspection:
         return 'Under Inspection';
       case JobStatus.workInProgress:
-        return 'Work in Progress';
+        return 'In Workshop';
       case JobStatus.completed:
         return 'Completed - Waiting For Pickup';
       case JobStatus.deliveryScheduled:
@@ -120,7 +120,7 @@ extension CarWorkflowStateX on CarWorkflowState {
       case CarWorkflowState.underInspection:
         return 'Under Inspection';
       case CarWorkflowState.workInProgress:
-        return 'Work in Progress';
+        return 'In Workshop';
       case CarWorkflowState.readyForDelivery:
         return 'Completed - Waiting For Pickup';
       case CarWorkflowState.deliveryRequested:
@@ -213,6 +213,10 @@ enum DocumentType { quotation, estimation, invoice, jobCard }
 
 enum PersonalDocumentType { rc, drivingLicense, insurance, puc, other }
 
+enum VehicleBodyType { hatchback, sedan, suv }
+
+enum VehicleViewAngle { front, top, back, left, right }
+
 extension DocumentTypeX on DocumentType {
   String get label {
     switch (this) {
@@ -239,6 +243,96 @@ extension DocumentTypeX on DocumentType {
         return 'JOB';
     }
   }
+}
+
+extension VehicleBodyTypeX on VehicleBodyType {
+  String get label {
+    switch (this) {
+      case VehicleBodyType.hatchback:
+        return 'Hatchback';
+      case VehicleBodyType.sedan:
+        return 'Sedan';
+      case VehicleBodyType.suv:
+        return 'SUV';
+    }
+  }
+
+  String get assetPrefix {
+    switch (this) {
+      case VehicleBodyType.hatchback:
+        return 'h';
+      case VehicleBodyType.sedan:
+        return 's';
+      case VehicleBodyType.suv:
+        return 'm';
+    }
+  }
+}
+
+extension VehicleViewAngleX on VehicleViewAngle {
+  String get label {
+    switch (this) {
+      case VehicleViewAngle.front:
+        return 'Front';
+      case VehicleViewAngle.top:
+        return 'Top';
+      case VehicleViewAngle.back:
+        return 'Back';
+      case VehicleViewAngle.left:
+        return 'Left';
+      case VehicleViewAngle.right:
+        return 'Right';
+    }
+  }
+
+  String get assetName {
+    switch (this) {
+      case VehicleViewAngle.front:
+        return 'front';
+      case VehicleViewAngle.top:
+        return 'top';
+      case VehicleViewAngle.back:
+        return 'back';
+      case VehicleViewAngle.left:
+        return 'left';
+      case VehicleViewAngle.right:
+        return 'right';
+    }
+  }
+}
+
+VehicleBodyType vehicleBodyTypeForModel(String model) {
+  final normalized = model.toLowerCase();
+  if (normalized.contains('suv') ||
+      normalized.contains('hector') ||
+      normalized.contains('creta') ||
+      normalized.contains('seltos') ||
+      normalized.contains('brezza') ||
+      normalized.contains('nexon') ||
+      normalized.contains('xuv') ||
+      normalized.contains('scorpio') ||
+      normalized.contains('thar') ||
+      normalized.contains('fortuner')) {
+    return VehicleBodyType.suv;
+  }
+  if (normalized.contains('sedan') ||
+      normalized.contains('city') ||
+      normalized.contains('verna') ||
+      normalized.contains('ciaz') ||
+      normalized.contains('virtus') ||
+      normalized.contains('slavia') ||
+      normalized.contains('dzire') ||
+      normalized.contains('amaze')) {
+    return VehicleBodyType.sedan;
+  }
+  return VehicleBodyType.hatchback;
+}
+
+String vehicleAnatomyAssetPath(
+  VehicleBodyType bodyType,
+  VehicleViewAngle view,
+) {
+  return 'assets/car_anatomy/${bodyType.assetPrefix}-${view.assetName}.svg';
 }
 
 extension PersonalDocumentTypeX on PersonalDocumentType {
@@ -637,6 +731,51 @@ class DocumentLineItem {
   }
 }
 
+class VehicleInspectionMark {
+  const VehicleInspectionMark({
+    required this.sequence,
+    required this.bodyType,
+    required this.view,
+    required this.x,
+    required this.y,
+    this.note = '',
+  });
+
+  final int sequence;
+  final VehicleBodyType bodyType;
+  final VehicleViewAngle view;
+  final double x;
+  final double y;
+  final String note;
+
+  String get locationLabel => '${bodyType.label} ${view.label}';
+
+  String get summary {
+    final percentageX = (x * 100).round();
+    final percentageY = (y * 100).round();
+    final suffix = note.trim().isEmpty ? '' : ': ${note.trim()}';
+    return 'Mark $sequence - $locationLabel ($percentageX%, $percentageY%)$suffix';
+  }
+
+  VehicleInspectionMark copyWith({
+    int? sequence,
+    VehicleBodyType? bodyType,
+    VehicleViewAngle? view,
+    double? x,
+    double? y,
+    String? note,
+  }) {
+    return VehicleInspectionMark(
+      sequence: sequence ?? this.sequence,
+      bodyType: bodyType ?? this.bodyType,
+      view: view ?? this.view,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      note: note ?? this.note,
+    );
+  }
+}
+
 class ServiceDocument {
   const ServiceDocument({
     required this.id,
@@ -652,6 +791,7 @@ class ServiceDocument {
     required this.createdAt,
     required this.updatedAt,
     required this.pdfLabel,
+    this.inspectionMarks = const [],
     this.customerComment,
   });
 
@@ -668,6 +808,7 @@ class ServiceDocument {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String pdfLabel;
+  final List<VehicleInspectionMark> inspectionMarks;
   final String? customerComment;
 
   ServiceDocument copyWith({
@@ -679,6 +820,7 @@ class ServiceDocument {
     String? customerComment,
     DateTime? updatedAt,
     String? pdfLabel,
+    List<VehicleInspectionMark>? inspectionMarks,
   }) {
     return ServiceDocument(
       id: id,
@@ -694,6 +836,7 @@ class ServiceDocument {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       pdfLabel: pdfLabel ?? this.pdfLabel,
+      inspectionMarks: inspectionMarks ?? this.inspectionMarks,
       customerComment: customerComment ?? this.customerComment,
     );
   }
@@ -1118,6 +1261,7 @@ class DocumentDraft {
     required this.items,
     this.selectedCarId,
     this.rawText = '',
+    this.inspectionMarks = const [],
   });
 
   final String documentNumber;
@@ -1129,6 +1273,7 @@ class DocumentDraft {
   final List<DocumentLineItem> items;
   final String? selectedCarId;
   final String rawText;
+  final List<VehicleInspectionMark> inspectionMarks;
 
   double get total => items.fold<double>(0, (sum, item) => sum + item.total);
 
@@ -1142,6 +1287,7 @@ class DocumentDraft {
     List<DocumentLineItem>? items,
     String? selectedCarId,
     String? rawText,
+    List<VehicleInspectionMark>? inspectionMarks,
   }) {
     return DocumentDraft(
       documentNumber: documentNumber ?? this.documentNumber,
@@ -1153,6 +1299,7 @@ class DocumentDraft {
       items: items ?? this.items,
       selectedCarId: selectedCarId ?? this.selectedCarId,
       rawText: rawText ?? this.rawText,
+      inspectionMarks: inspectionMarks ?? this.inspectionMarks,
     );
   }
 }

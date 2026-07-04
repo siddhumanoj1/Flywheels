@@ -32,6 +32,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/flywheels-logo.png
+    - assets/car_anatomy/
     - assets/car_status/car.svg
     - assets/car_status/repair.svg
     - assets/car_status/tire.svg

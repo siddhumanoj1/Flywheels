@@ -8,7 +8,14 @@ import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-enum _WheelsSort { newest, nearest, priceLow, priceHigh, mileageLow }
+enum _WheelsSort {
+  newest,
+  nearest,
+  modelYearLow,
+  priceLow,
+  priceHigh,
+  mileageLow,
+}
 
 extension _WheelsSortX on _WheelsSort {
   String get label {
@@ -17,12 +24,14 @@ extension _WheelsSortX on _WheelsSort {
         return 'Newest';
       case _WheelsSort.nearest:
         return 'Nearest location';
+      case _WheelsSort.modelYearLow:
+        return 'Model year lowest to highest';
       case _WheelsSort.priceLow:
         return 'Price low to high';
       case _WheelsSort.priceHigh:
         return 'Price high to low';
       case _WheelsSort.mileageLow:
-        return 'Lowest mileage';
+        return 'Lowest kms';
     }
   }
 }
@@ -206,6 +215,9 @@ class _WheelsMarketplaceTabState extends State<WheelsMarketplaceTab> {
             left.location,
           ).compareTo(_locationRank(right.location)),
         );
+        break;
+      case _WheelsSort.modelYearLow:
+        filtered.sort((left, right) => left.year.compareTo(right.year));
         break;
       case _WheelsSort.priceLow:
         filtered.sort((left, right) => left.price.compareTo(right.price));

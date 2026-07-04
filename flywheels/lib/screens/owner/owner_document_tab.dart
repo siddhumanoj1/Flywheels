@@ -6,14 +6,15 @@ import 'package:flywheels/models/app_models.dart';
 import 'package:flywheels/services/document_builder_service.dart';
 import 'package:flywheels/services/document_pdf_export_service.dart';
 import 'package:flywheels/services/whatsapp_share_service.dart';
+import 'package:flywheels/widgets/car_anatomy_inspection.dart';
 import 'package:flywheels/widgets/document_template_preview.dart';
-import 'package:flywheels/widgets/app_inner_tabs.dart';
 import 'package:flutter/material.dart';
 
 class OwnerDocumentTab extends StatefulWidget {
-  const OwnerDocumentTab({super.key, this.preferredCarId});
+  const OwnerDocumentTab({super.key, this.preferredCarId, this.preferredType});
 
   final String? preferredCarId;
+  final DocumentType? preferredType;
 
   @override
   State<OwnerDocumentTab> createState() => _OwnerDocumentTabState();
@@ -45,11 +46,19 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
   String _libraryQuery = '';
   DocumentType? _libraryTypeFilter;
   List<DocumentLineItem> _items = const [];
+  List<VehicleInspectionMark> _inspectionMarks = const [];
 
   @override
   void initState() {
     super.initState();
     _selectedCarId = widget.preferredCarId;
+    if (widget.preferredType != null) {
+      _selectedType = widget.preferredType!;
+      _hasSelectedDocumentType = true;
+      _hasParsedDocument =
+          widget.preferredType == DocumentType.jobCard &&
+          widget.preferredCarId != null;
+    }
   }
 
   @override
@@ -67,8 +76,22 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         widget.preferredCarId != oldWidget.preferredCarId) {
       setState(() {
         _selectedCarId = widget.preferredCarId;
+        _useExistingCustomer = true;
       });
       _hydrateFromSelectedCar();
+    }
+    if (widget.preferredType != null &&
+        widget.preferredType != oldWidget.preferredType) {
+      setState(() {
+        _selectedType = widget.preferredType!;
+        _hasSelectedDocumentType = true;
+        _hasParsedDocument =
+            _selectedType == DocumentType.jobCard && _selectedCarId != null;
+        if (_selectedType != DocumentType.jobCard) {
+          _inspectionMarks = const [];
+        }
+        _documentNumberController.text = _nextDocumentNumber(_selectedType);
+      });
     }
   }
 
@@ -121,6 +144,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
         _rawTextController.text = draft.rawText;
       }
       _items = List<DocumentLineItem>.from(draft.items);
+      _inspectionMarks = List<VehicleInspectionMark>.from(
+        draft.inspectionMarks,
+      );
     });
   }
 
@@ -188,6 +214,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       items: _items,
       selectedCarId: _selectedCarId,
       rawText: _rawTextController.text,
+      inspectionMarks: _inspectionMarks,
     );
   }
 
@@ -338,9 +365,24 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       );
       return null;
     }
-    if (_items.isEmpty) {
+    if (_items.isEmpty &&
+        (_selectedType != DocumentType.jobCard || _inspectionMarks.isEmpty)) {
       _showMessage('Add at least one line item before sending.');
       return null;
+    }
+    if (_selectedType == DocumentType.jobCard && _selectedCarId != null) {
+      final activeJob = FlywheelsScope.of(
+        context,
+      ).latestJobForCar(_selectedCarId!);
+      final canCreateJobCard =
+          activeJob != null &&
+          (activeJob.status == JobStatus.pickupDone ||
+              activeJob.status == JobStatus.received ||
+              activeJob.status == JobStatus.underInspection);
+      if (!canCreateJobCard) {
+        _showMessage('Job cards can be created after pickup is done.');
+        return null;
+      }
     }
 
     final controller = FlywheelsScope.of(context);
@@ -418,7 +460,8 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       _showMessage('Complete customer, vehicle, and model details first.');
       return false;
     }
-    if (_items.isEmpty) {
+    if (_items.isEmpty &&
+        (_selectedType != DocumentType.jobCard || _inspectionMarks.isEmpty)) {
       _showMessage('Add at least one line item before creating a document.');
       return false;
     }
@@ -474,6 +517,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               vehicleNumber: _vehicleNumberController.text,
               carModel: _carModelController.text,
               items: _items,
+              inspectionMarks: _inspectionMarks,
               padding: const EdgeInsets.all(24),
             ),
           ),
@@ -661,6 +705,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
               vehicleNumber: car?.carNumber ?? 'Vehicle',
               carModel: car?.model ?? 'N/A',
               items: document.items,
+              inspectionMarks: document.inspectionMarks,
               padding: const EdgeInsets.all(24),
             ),
           ),
@@ -770,6 +815,8 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       key: const PageStorageKey('owner-document-library'),
       padding: const EdgeInsets.all(20),
       children: [
+        _buildModeSwitch(),
+        const SizedBox(height: 16),
         Text('Document Library', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 12),
         TextField(
@@ -843,6 +890,27 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
     );
   }
 
+  Widget _buildModeSwitch() {
+    return SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment<bool>(
+          value: false,
+          icon: Icon(Icons.edit_document),
+          label: Text('Studio'),
+        ),
+        ButtonSegment<bool>(
+          value: true,
+          icon: Icon(Icons.folder_copy_outlined),
+          label: Text('Library'),
+        ),
+      ],
+      selected: {_showLibrary},
+      onSelectionChanged: (selection) {
+        setState(() => _showLibrary = selection.first);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = FlywheelsScope.of(context);
@@ -882,6 +950,8 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       controller: _scrollController,
       padding: const EdgeInsets.all(20),
       children: [
+        _buildModeSwitch(),
+        const SizedBox(height: 16),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -922,6 +992,9 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                           _selectedType = type;
                           _hasSelectedDocumentType = true;
                           _hasParsedDocument = false;
+                          if (type != DocumentType.jobCard) {
+                            _inspectionMarks = const [];
+                          }
                           _documentNumberController.text = _nextDocumentNumber(
                             type,
                           );
@@ -1291,6 +1364,22 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
                       ),
                     ),
                   ),
+                  if (_selectedType == DocumentType.jobCard) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Vehicle inspection',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    CarAnatomyInspectionEditor(
+                      marks: _inspectionMarks,
+                      initialBodyType: vehicleBodyTypeForModel(
+                        _carModelController.text,
+                      ),
+                      onChanged: (marks) =>
+                          setState(() => _inspectionMarks = marks),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1315,17 +1404,7 @@ class _OwnerDocumentTabState extends State<OwnerDocumentTab> {
       ],
     );
 
-    return AppInnerTabs(
-      currentIndex: _showLibrary ? 1 : 0,
-      onChanged: (index) => setState(() => _showLibrary = index == 1),
-      tabs: [
-        AppInnerTab(label: 'Document Studio', child: studio),
-        AppInnerTab(
-          label: 'Document Library',
-          child: _buildDocumentLibrary(controller, documents),
-        ),
-      ],
-    );
+    return _showLibrary ? _buildDocumentLibrary(controller, documents) : studio;
   }
 }
 

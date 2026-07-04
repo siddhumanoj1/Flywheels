@@ -32,6 +32,7 @@ class DocumentPdfViewerPage extends StatelessWidget {
               vehicleNumber: car.carNumber,
               carModel: car.model,
               items: document.items,
+              inspectionMarks: document.inspectionMarks,
             ),
           ),
         ],

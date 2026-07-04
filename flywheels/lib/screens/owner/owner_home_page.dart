@@ -29,7 +29,9 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   final _ownerReplyController = TextEditingController();
   late final PageController _pageController;
   int _currentIndex = 0;
+  int _carsTrackerReplayToken = 0;
   String? _preferredCarId;
+  DocumentType? _preferredDocumentType;
   String? _selectedOwnerChatUserId;
   String? _selectedOwnerChatCarId;
   String _ownerChatSearch = '';
@@ -624,7 +626,10 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
 
   void _selectTab(int index) {
     if (index < 0 || index > 6) return;
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      if (index == 1) _carsTrackerReplayToken += 1;
+    });
     if (_pageController.hasClients) {
       _pageController.animateToPage(
         index,
@@ -635,7 +640,10 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   }
 
   void _handleParentPageChanged(int index) {
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      if (index == 1) _carsTrackerReplayToken += 1;
+    });
   }
 
   void _openChatForCar(CarProfile car) {
@@ -690,7 +698,17 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             },
             onOpenWheels: () => _selectTab(_wheelsTabIndex),
             onOpenDocuments: (carId) {
-              setState(() => _preferredCarId = carId.isEmpty ? null : carId);
+              setState(() {
+                _preferredCarId = carId.isEmpty ? null : carId;
+                _preferredDocumentType = null;
+              });
+              _selectTab(_documentsTabIndex);
+            },
+            onCreateJobCard: (carId) {
+              setState(() {
+                _preferredCarId = carId;
+                _preferredDocumentType = DocumentType.jobCard;
+              });
               _selectTab(_documentsTabIndex);
             },
             onOpenChat: _openChatForCar,
@@ -699,13 +717,24 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             filter: _carProfileFilter,
             searchQuery: _carProfileSearch,
             sort: _carProfileSort,
+            trackerReplayToken: _carsTrackerReplayToken,
             onFilterChanged: (value) =>
                 setState(() => _carProfileFilter = value),
             onSearchChanged: (value) =>
                 setState(() => _carProfileSearch = value),
             onSortChanged: (value) => setState(() => _carProfileSort = value),
             onOpenDocuments: (carId) {
-              setState(() => _preferredCarId = carId);
+              setState(() {
+                _preferredCarId = carId;
+                _preferredDocumentType = null;
+              });
+              _selectTab(_documentsTabIndex);
+            },
+            onCreateJobCard: (carId) {
+              setState(() {
+                _preferredCarId = carId;
+                _preferredDocumentType = DocumentType.jobCard;
+              });
               _selectTab(_documentsTabIndex);
             },
             onOpenChat: _openChatForCar,
@@ -749,7 +778,10 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
             onSendPhoto: _sendOwnerChatPhoto,
             onSend: _sendOwnerReply,
           ),
-          OwnerDocumentTab(preferredCarId: _preferredCarId),
+          OwnerDocumentTab(
+            preferredCarId: _preferredCarId,
+            preferredType: _preferredDocumentType,
+          ),
           _OwnerProfileTab(
             onPickProfilePhoto: _pickProfilePhoto,
             isPickingProfilePhoto: _pickingProfilePhoto,
@@ -1096,6 +1128,7 @@ class _OwnerDashboardTab extends StatelessWidget {
     required this.onOpenCars,
     required this.onOpenWheels,
     required this.onOpenDocuments,
+    required this.onCreateJobCard,
     required this.onOpenChat,
   });
 
@@ -1104,6 +1137,7 @@ class _OwnerDashboardTab extends StatelessWidget {
   final ValueChanged<_OwnerCarProfileFilter> onOpenCars;
   final VoidCallback onOpenWheels;
   final ValueChanged<String> onOpenDocuments;
+  final ValueChanged<String> onCreateJobCard;
   final ValueChanged<CarProfile> onOpenChat;
 
   void _openMetricSheet(
@@ -1366,6 +1400,7 @@ class _OwnerDashboardTab extends StatelessWidget {
           onAssignPickup: onAssignPickup,
           onCompletePickup: onCompletePickup,
           onOpenDocuments: onOpenDocuments,
+          onCreateJobCard: onCreateJobCard,
           onOpenChat: onOpenChat,
         ),
         const SizedBox(height: 16),
@@ -1649,6 +1684,7 @@ class _OwnerPriorityQueue extends StatelessWidget {
     required this.onAssignPickup,
     required this.onCompletePickup,
     required this.onOpenDocuments,
+    required this.onCreateJobCard,
     required this.onOpenChat,
   });
 
@@ -1657,6 +1693,7 @@ class _OwnerPriorityQueue extends StatelessWidget {
   final ValueChanged<ServiceJob> onAssignPickup;
   final ValueChanged<ServiceJob> onCompletePickup;
   final ValueChanged<String> onOpenDocuments;
+  final ValueChanged<String> onCreateJobCard;
   final ValueChanged<CarProfile> onOpenChat;
 
   @override
@@ -1734,7 +1771,7 @@ class _OwnerPriorityQueue extends StatelessWidget {
 
   IconData _primaryIcon(ServiceJob job) {
     if (job.status == JobStatus.pickupDone) {
-      return Icons.inventory_2_outlined;
+      return Icons.assignment_rounded;
     }
     if (job.workflowState.isTransit &&
         job.pickupState == PickupState.requested) {
@@ -1763,7 +1800,7 @@ class _OwnerPriorityQueue extends StatelessWidget {
       case JobStatus.pickupScheduled:
         return 'Assign pickup person';
       case JobStatus.pickupDone:
-        return 'Mark vehicle received';
+        return 'Create job card';
       case JobStatus.received:
         return 'Assign master mechanic';
       case JobStatus.underInspection:
@@ -1781,7 +1818,7 @@ class _OwnerPriorityQueue extends StatelessWidget {
 
   void _runPrimary(ServiceJob job, CarProfile car) {
     if (job.status == JobStatus.pickupDone) {
-      controller.setJobStatus(job.id, JobStatus.received);
+      onCreateJobCard(car.id);
       return;
     }
     if (job.workflowState.isTransit &&
@@ -2103,10 +2140,12 @@ class _OwnerOperationsTab extends StatelessWidget {
     required this.filter,
     required this.searchQuery,
     required this.sort,
+    required this.trackerReplayToken,
     required this.onFilterChanged,
     required this.onSearchChanged,
     required this.onSortChanged,
     required this.onOpenDocuments,
+    required this.onCreateJobCard,
     required this.onOpenChat,
     required this.onAddPhoto,
     required this.onAssignPickup,
@@ -2118,10 +2157,12 @@ class _OwnerOperationsTab extends StatelessWidget {
   final _OwnerCarProfileFilter filter;
   final String searchQuery;
   final _OwnerCarProfileSort sort;
+  final int trackerReplayToken;
   final ValueChanged<_OwnerCarProfileFilter> onFilterChanged;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<_OwnerCarProfileSort> onSortChanged;
   final ValueChanged<String> onOpenDocuments;
+  final ValueChanged<String> onCreateJobCard;
   final ValueChanged<CarProfile> onOpenChat;
   final void Function(CarProfile car, JobStatus? status) onAddPhoto;
   final ValueChanged<ServiceJob> onAssignPickup;
@@ -2189,6 +2230,10 @@ class _OwnerOperationsTab extends StatelessWidget {
     JobStatus status,
   ) {
     if (job.status == status) return;
+    if (job.status == JobStatus.pickupDone) {
+      onCreateJobCard(car.id);
+      return;
+    }
     controller.setJobStatus(job.id, status);
     controller.sendStatusUpdate(
       job.id,
@@ -2349,8 +2394,24 @@ class _OwnerOperationsTab extends StatelessWidget {
             void handleTrackerStatus(JobStatus status) {
               final latestJob = controller.latestJobForCar(car.id);
               if (latestJob == null) return;
+              if (latestJob.status == JobStatus.pickupDone &&
+                  status != JobStatus.pickupDone) {
+                Navigator.of(context).pop();
+                onCreateJobCard(car.id);
+                return;
+              }
               _changeJobStatus(controller, car, latestJob, status);
               setModalState(() {});
+            }
+
+            void handleStatusPhoto(JobStatus status) {
+              final latestJob = controller.latestJobForCar(car.id);
+              if (latestJob?.status == JobStatus.pickupDone) {
+                Navigator.of(context).pop();
+                onCreateJobCard(car.id);
+                return;
+              }
+              onAddPhoto(car, status);
             }
 
             return Padding(
@@ -2391,6 +2452,7 @@ class _OwnerOperationsTab extends StatelessWidget {
                       const SizedBox(height: 16),
                       GarageServiceTracker(
                         status: currentJob?.status ?? JobStatus.onRoad,
+                        replayToken: 'owner-detail:${car.id}',
                         onStatusChanged: currentJob == null
                             ? null
                             : handleTrackerStatus,
@@ -2447,7 +2509,25 @@ class _OwnerOperationsTab extends StatelessWidget {
                                   currentJob.status ==
                                   JobStatus.underInspection,
                               onPressed: () =>
-                                  onAddPhoto(car, JobStatus.underInspection),
+                                  handleStatusPhoto(JobStatus.underInspection),
+                            ),
+                            AutomotiveControlButton(
+                              icon: Icons.assignment_rounded,
+                              label: 'Job card',
+                              active:
+                                  currentJob.status == JobStatus.pickupDone ||
+                                  currentJob.status ==
+                                      JobStatus.underInspection,
+                              onPressed:
+                                  currentJob.status == JobStatus.pickupDone ||
+                                      currentJob.status == JobStatus.received ||
+                                      currentJob.status ==
+                                          JobStatus.underInspection
+                                  ? () {
+                                      Navigator.of(context).pop();
+                                      onCreateJobCard(car.id);
+                                    }
+                                  : null,
                             ),
                             AutomotiveControlButton(
                               icon: Icons.handyman_outlined,
@@ -2455,20 +2535,25 @@ class _OwnerOperationsTab extends StatelessWidget {
                               active:
                                   currentJob.status == JobStatus.workInProgress,
                               onPressed: () =>
-                                  onAddPhoto(car, JobStatus.workInProgress),
+                                  handleStatusPhoto(JobStatus.workInProgress),
                             ),
                             AutomotiveControlButton(
                               icon: Icons.verified_outlined,
                               label: 'Complete',
                               active: currentJob.status == JobStatus.completed,
                               onPressed: () =>
-                                  onAddPhoto(car, JobStatus.completed),
+                                  handleStatusPhoto(JobStatus.completed),
                             ),
                             AutomotiveControlButton(
                               icon: Icons.route_rounded,
                               label: 'On-Road',
                               active: currentJob.status == JobStatus.onRoad,
                               onPressed: () {
+                                if (currentJob.status == JobStatus.pickupDone) {
+                                  Navigator.of(context).pop();
+                                  onCreateJobCard(car.id);
+                                  return;
+                                }
                                 controller.setJobStatus(
                                   currentJob.id,
                                   JobStatus.onRoad,
@@ -2773,6 +2858,7 @@ class _OwnerOperationsTab extends StatelessWidget {
                       const SizedBox(height: 12),
                       GarageServiceTracker(
                         status: job?.status ?? JobStatus.onRoad,
+                        replayToken: 'owner-cars:$trackerReplayToken:${car.id}',
                         onStatusChanged: job == null
                             ? null
                             : (status) => _changeJobStatus(

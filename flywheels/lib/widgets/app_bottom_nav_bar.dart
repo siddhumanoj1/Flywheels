@@ -17,6 +17,74 @@ class AppBottomNavItem {
   final Color? color;
 }
 
+enum AppMatrixIcon {
+  home,
+  docs,
+  wheels,
+  chat,
+  profile,
+  team,
+  car,
+  dashboard,
+  rupee,
+  left,
+  right;
+
+  static AppMatrixIcon fromLabel(String label) {
+    final normalized = label.trim().toLowerCase();
+    if (normalized.contains('dashboard')) return AppMatrixIcon.dashboard;
+    if (normalized.contains('salary') ||
+        normalized.contains('rupee') ||
+        normalized.contains('pay')) {
+      return AppMatrixIcon.rupee;
+    }
+    if (normalized.contains('right') || normalized.contains('next')) {
+      return AppMatrixIcon.right;
+    }
+    if (normalized.contains('left') ||
+        normalized.contains('back') ||
+        normalized.contains('previous')) {
+      return AppMatrixIcon.left;
+    }
+    if (normalized == 'cars' || normalized.contains('car')) {
+      return AppMatrixIcon.car;
+    }
+    if (normalized.contains('team')) return AppMatrixIcon.team;
+    if (normalized.contains('wheel')) return AppMatrixIcon.wheels;
+    if (normalized.contains('chat')) return AppMatrixIcon.chat;
+    if (normalized.contains('doc')) return AppMatrixIcon.docs;
+    if (normalized.contains('profile')) return AppMatrixIcon.profile;
+    return AppMatrixIcon.home;
+  }
+}
+
+class MatrixIconSurface extends StatelessWidget {
+  const MatrixIconSurface({
+    super.key,
+    required this.type,
+    this.active = true,
+    this.circularClip = false,
+    this.showBackground = true,
+  });
+
+  final AppMatrixIcon type;
+  final bool active;
+  final bool circularClip;
+  final bool showBackground;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _MatrixIconPainter(
+        type: type,
+        active: active,
+        circularClip: circularClip,
+        showBackground: showBackground,
+      ),
+    );
+  }
+}
+
 class AppBottomNavBar extends StatelessWidget {
   const AppBottomNavBar({
     super.key,
@@ -193,7 +261,7 @@ class _PositionedNavButton extends StatelessWidget {
       height: height,
       child: _NavButton(
         label: item.label,
-        matrixType: _MatrixType.fromLabel(item.label),
+        matrixType: AppMatrixIcon.fromLabel(item.label),
         active: active,
         center: isCenter,
         badgeCount: badgeCount,
@@ -214,7 +282,7 @@ class _NavButton extends StatelessWidget {
   });
 
   final String label;
-  final _MatrixType matrixType;
+  final AppMatrixIcon matrixType;
   final bool active;
   final bool center;
   final int badgeCount;
@@ -310,6 +378,7 @@ class _NavButton extends StatelessWidget {
                             type: matrixType,
                             active: active,
                             circularClip: center,
+                            showBackground: true,
                           ),
                         ),
                       ),
@@ -419,57 +488,18 @@ class _NavPlatePainter extends CustomPainter {
   bool shouldRepaint(covariant _NavPlatePainter oldDelegate) => false;
 }
 
-enum _MatrixType {
-  home,
-  docs,
-  wheels,
-  chat,
-  profile,
-  team,
-  car,
-  dashboard,
-  rupee,
-  left,
-  right;
-
-  static _MatrixType fromLabel(String label) {
-    final normalized = label.trim().toLowerCase();
-    if (normalized.contains('dashboard')) return _MatrixType.dashboard;
-    if (normalized.contains('salary') ||
-        normalized.contains('rupee') ||
-        normalized.contains('pay')) {
-      return _MatrixType.rupee;
-    }
-    if (normalized.contains('right') || normalized.contains('next')) {
-      return _MatrixType.right;
-    }
-    if (normalized.contains('left') ||
-        normalized.contains('back') ||
-        normalized.contains('previous')) {
-      return _MatrixType.left;
-    }
-    if (normalized == 'cars' || normalized.contains('car')) {
-      return _MatrixType.car;
-    }
-    if (normalized.contains('team')) return _MatrixType.team;
-    if (normalized.contains('wheel')) return _MatrixType.wheels;
-    if (normalized.contains('chat')) return _MatrixType.chat;
-    if (normalized.contains('doc')) return _MatrixType.docs;
-    if (normalized.contains('profile')) return _MatrixType.profile;
-    return _MatrixType.home;
-  }
-}
-
 class _MatrixIconPainter extends CustomPainter {
   const _MatrixIconPainter({
     required this.type,
     required this.active,
     required this.circularClip,
+    required this.showBackground,
   });
 
-  final _MatrixType type;
+  final AppMatrixIcon type;
   final bool active;
   final bool circularClip;
+  final bool showBackground;
 
   static const _size = 24;
   static const _baseDotSize = 8.0;
@@ -482,7 +512,6 @@ class _MatrixIconPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Full 24x24 dark matrix covers the entire button.
     final cellWidth = size.width / _size;
     final cellHeight = size.height / _size;
     final dotRatio = math.min(
@@ -504,13 +533,15 @@ class _MatrixIconPainter extends CustomPainter {
         _baseGlowBlur * dotScale * _litIconScale,
       );
 
-    for (var y = 0; y < _size; y++) {
-      for (var x = 0; x < _size; x++) {
-        final center = Offset((x + 0.5) * cellWidth, (y + 0.5) * cellHeight);
-        if (circularClip && (center - centerOffset).distance > clipRadius) {
-          continue;
+    if (showBackground) {
+      for (var y = 0; y < _size; y++) {
+        for (var x = 0; x < _size; x++) {
+          final center = Offset((x + 0.5) * cellWidth, (y + 0.5) * cellHeight);
+          if (circularClip && (center - centerOffset).distance > clipRadius) {
+            continue;
+          }
+          canvas.drawCircle(center, radius, offPaint);
         }
-        canvas.drawCircle(center, radius, offPaint);
       }
     }
 
@@ -545,7 +576,7 @@ class _MatrixIconPainter extends CustomPainter {
 
   bool _isDotOn(int x, int y) {
     switch (type) {
-      case _MatrixType.home:
+      case AppMatrixIcon.home:
         final roof = y >= 3 && y <= 11 && (x - 11.5).abs() <= (y - 2);
         final base =
             y >= 12 &&
@@ -555,12 +586,12 @@ class _MatrixIconPainter extends CustomPainter {
             !(x >= 10 && x <= 13 && y >= 15);
         return roof || base;
 
-      case _MatrixType.docs:
+      case AppMatrixIcon.docs:
         final paper = x >= 5 && x <= 19 && y >= 3 && y <= 21;
         final lines = x >= 8 && x <= 16 && y >= 7 && y <= 17 && y % 3 == 1;
         return paper && !lines;
 
-      case _MatrixType.wheels:
+      case AppMatrixIcon.wheels:
         final distance = math.sqrt(
           math.pow(x - 11.5, 2) + math.pow(y - 11.5, 2),
         );
@@ -574,7 +605,7 @@ class _MatrixIconPainter extends CustomPainter {
                 (x + y - 23).abs() <= 1);
         return ring || hub || (spokes && distance > 2);
 
-      case _MatrixType.chat:
+      case AppMatrixIcon.chat:
         final bubble = x >= 3 && x <= 20 && y >= 4 && y <= 16;
         final tail =
             x >= 6 && x <= 10 && y >= 16 && y <= 20 && (x - 6) <= (20 - y);
@@ -586,7 +617,7 @@ class _MatrixIconPainter extends CustomPainter {
                 (x >= 14 && x <= 16));
         return (bubble || tail) && !cutouts;
 
-      case _MatrixType.profile:
+      case AppMatrixIcon.profile:
         var head = false;
         var body = false;
 
@@ -610,7 +641,7 @@ class _MatrixIconPainter extends CustomPainter {
 
         return head || body;
 
-      case _MatrixType.team:
+      case AppMatrixIcon.team:
         if (y == 7 && x >= 11 && x <= 13) return true;
         if (y == 8 && x >= 10 && x <= 14) return true;
         if (y == 9 && x >= 10 && x <= 14) return true;
@@ -641,7 +672,7 @@ class _MatrixIconPainter extends CustomPainter {
         if (y == 15 && x >= 18 && x <= 21) return true;
         return false;
 
-      case _MatrixType.car:
+      case AppMatrixIcon.car:
         final roof =
             (y == 6 && x >= 7 && x <= 16) ||
             (y == 7 && x >= 6 && x <= 17) ||
@@ -673,7 +704,7 @@ class _MatrixIconPainter extends CustomPainter {
                 rightWheel) &&
             !window;
 
-      case _MatrixType.dashboard:
+      case AppMatrixIcon.dashboard:
         const rows = {
           4: [
             [9, 14],
@@ -758,7 +789,7 @@ class _MatrixIconPainter extends CustomPainter {
           (range) => x >= range[0] && x <= range[1],
         );
 
-      case _MatrixType.rupee:
+      case AppMatrixIcon.rupee:
         const rows = {
           3: [
             [4, 19],
@@ -821,7 +852,7 @@ class _MatrixIconPainter extends CustomPainter {
           (range) => x >= range[0] && x <= range[1],
         );
 
-      case _MatrixType.left:
+      case AppMatrixIcon.left:
         const rows = {
           4: [
             [9, 9],
@@ -879,7 +910,7 @@ class _MatrixIconPainter extends CustomPainter {
           (range) => x >= range[0] && x <= range[1],
         );
 
-      case _MatrixType.right:
+      case AppMatrixIcon.right:
         const rows = {
           4: [
             [14, 14],
@@ -943,6 +974,7 @@ class _MatrixIconPainter extends CustomPainter {
   bool shouldRepaint(covariant _MatrixIconPainter oldDelegate) {
     return type != oldDelegate.type ||
         active != oldDelegate.active ||
-        circularClip != oldDelegate.circularClip;
+        circularClip != oldDelegate.circularClip ||
+        showBackground != oldDelegate.showBackground;
   }
 }

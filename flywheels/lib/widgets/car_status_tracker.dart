@@ -31,11 +31,15 @@ class GarageServiceTracker extends StatefulWidget {
     required this.status,
     this.onStatusChanged,
     this.enableAutoOnRoad = true,
+    this.playIntro = true,
+    this.replayToken,
   });
 
   final JobStatus status;
   final ValueChanged<JobStatus>? onStatusChanged;
   final bool enableAutoOnRoad;
+  final bool playIntro;
+  final Object? replayToken;
 
   @override
   State<GarageServiceTracker> createState() => _GarageServiceTrackerState();
@@ -67,7 +71,9 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
   void initState() {
     super.initState();
     _targetStatus = widget.status;
-    _displayStatus = JobStatus.pickupScheduled;
+    _displayStatus = widget.playIntro
+        ? JobStatus.pickupScheduled
+        : widget.status;
     _idleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -81,18 +87,33 @@ class _GarageServiceTrackerState extends State<GarageServiceTracker>
       duration: const Duration(milliseconds: 500),
     );
     _syncMotion(animated: false);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _playIntroTo(widget.status);
-    });
+    if (widget.playIntro) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _playIntroTo(widget.status);
+      });
+    }
   }
 
   @override
   void didUpdateWidget(covariant GarageServiceTracker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.playIntro && widget.replayToken != oldWidget.replayToken) {
+      _playIntroTo(widget.status);
+      return;
+    }
     if (widget.status == oldWidget.status || widget.status == _targetStatus) {
       return;
     }
-    _playIntroTo(widget.status);
+    if (widget.playIntro) {
+      _playIntroTo(widget.status);
+      return;
+    }
+    _applyStatus(
+      widget.status,
+      notify: false,
+      moveDuration: Duration.zero,
+      allowAutoOnRoad: false,
+    );
   }
 
   @override
@@ -433,6 +454,7 @@ class _TrackerScene extends StatelessWidget {
   final Animation<double> wheelAnimation;
 
   static const _carWrapperBottom = -8.0;
+  static const _carVerticalAdjustment = -2.0;
   static const _exitOffset = 240.0;
   static const _enterOffset = -260.0;
 
@@ -495,7 +517,7 @@ class _TrackerScene extends StatelessWidget {
                   duration: carDuration,
                   curve: carCurve,
                   left: carLeft,
-                  bottom: _carWrapperBottom * scale,
+                  bottom: (_carWrapperBottom * scale) + _carVerticalAdjustment,
                   width: carWidth,
                   height: carHeight,
                   child: AnimatedBuilder(
@@ -879,7 +901,7 @@ String _trackerLabel(JobStatus status) {
     case JobStatus.underInspection:
       return 'Under Inspection';
     case JobStatus.workInProgress:
-      return 'Work In Progress';
+      return 'In Workshop';
     case JobStatus.completed:
       return 'Completed - Waiting For Pickup';
     case JobStatus.deliveryScheduled:

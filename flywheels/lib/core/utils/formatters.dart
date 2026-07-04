@@ -67,7 +67,7 @@ String statusLabel(JobStatus status) {
     case JobStatus.underInspection:
       return 'Under Inspection';
     case JobStatus.workInProgress:
-      return 'Work in Progress';
+      return 'In Workshop';
     case JobStatus.completed:
       return 'Completed - Waiting For Pickup';
     case JobStatus.deliveryScheduled:
